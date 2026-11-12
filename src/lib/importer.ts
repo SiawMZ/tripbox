@@ -101,6 +101,11 @@ export async function locateTrip(tripId: string) {
   return call<{ hotel: { name: string | null; lat: number | null; lng: number | null } }>({ action: 'locate', trip_id: tripId });
 }
 
+/** Owner only: deletes the trip and its photos (storage isn't reached by the database's cascades). */
+export async function deleteTripWithPhotos(tripId: string) {
+  await call<{ deleted: string }>({ action: 'delete_trip', trip_id: tripId });
+}
+
 /** 👍 / 👎 on an import: how well it found the places. */
 export async function rateImport(linkId: string, rating: 'good' | 'bad') {
   const { error } = await supabase.from('trip_links').update({ rating }).eq('id', linkId);

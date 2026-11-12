@@ -3,6 +3,8 @@
 //   { action: 'import', trip_id, url?, text? }  -> one JSON line per step, the last with the places found
 //   { action: 'add', link_id, picks: number[] } -> saves the picked places to the trip
 //   { action: 'locate', trip_id }               -> sets a new trip's start point to its city centre
+//   { action: 'delete_trip', trip_id }          -> owner only: deletes the trip and its photo folder
+// Security requirements: docs/security.md ("Requirements for step 2").
 // Membership is checked through the user's own client (RLS); writes use the service role.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
@@ -27,6 +29,8 @@ const MAX_PLACES = 25; // Google lookups per import
 const MAX_KM = 50; // a match farther than this from the start point is another place with the same name
 const CACHE_DAYS = 30; // Google lookups are refetched after this
 const TEXT_LIMIT = 3000;
+const MAX_LINKS_PER_TRIP = 300;
+const MAX_PLACES_PER_TRIP = 500;
 
 const anthropic = new Anthropic();
 const googleKey = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
@@ -62,6 +66,7 @@ Deno.serve(async (req) => {
     if (body.action === 'import') return await importLink(userDb, adminDb, userId, body);
     if (body.action === 'add') return await addPicked(userDb, adminDb, userId, body);
     if (body.action === 'locate') return json(await locate(userDb, adminDb, userId, String(body.trip_id ?? '')));
+    if (body.action === 'delete_trip') return await deleteTrip(userDb, adminDb, userId, String(body.trip_id ?? ''));
     return json({ error: 'unknown action' }, 400);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
@@ -91,6 +96,8 @@ async function importLink(
     await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'import', outcome: 'rate_limited', detail: limited });
     return json({ error: limited }, 429);
   }
+  const { count: links } = await adminDb.from('trip_links').select('id', { count: 'exact', head: true }).eq('trip_id', tripId);
+  if ((links ?? 0) >= MAX_LINKS_PER_TRIP) return json({ error: `This trip already has ${MAX_LINKS_PER_TRIP} imported links.` }, 429);
   const start = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng } : (await locate(userDb, adminDb, userId, tripId)).hotel;
 
   const stream = new ReadableStream({
@@ -129,7 +136,7 @@ async function importLink(
           usage.places_calls += calls;
           let photoPath: string | undefined;
           if (match?.photoName) {
-            const got = await storedPhoto(adminDb, match.id, match.photoName);
+            const got = await storedPhoto(adminDb, tripId, match.id, match.photoName);
             photoPath = got.path;
             usage.places_calls += got.calls;
           }
@@ -150,7 +157,7 @@ async function importLink(
           .from('trip_links')
           .update({
             status: 'review',
-            platform: post.platform,
+            platform: post.platform.slice(0, 20),
             title: post.title?.slice(0, 500) ?? null,
             author: post.author?.slice(0, 200) ?? null,
             cover_url: post.images[0]?.slice(0, 2000) ?? null,
@@ -187,6 +194,10 @@ async function addPicked(userDb: SupabaseClient, adminDb: SupabaseClient, userId
   const { data: link } = await userDb.from('trip_links').select('id, trip_id, status, candidates').eq('id', linkId).maybeSingle();
   if (!link || link.status !== 'review') return json({ error: 'This import has expired. Import the link again.' }, 410);
   const candidates = (link.candidates ?? []) as Candidate[];
+  const { count: placeCount } = await adminDb.from('trip_places').select('id', { count: 'exact', head: true }).eq('trip_id', link.trip_id);
+  if ((placeCount ?? 0) + picks.length > MAX_PLACES_PER_TRIP) {
+    return json({ error: `A trip can hold ${MAX_PLACES_PER_TRIP} places. Remove some first.` }, 429);
+  }
   const rows = picks
     .map((i) => candidates[i])
     .filter((c): c is Candidate & { match: NonNullable<Candidate['match']> } => !!c?.match)
@@ -197,16 +208,18 @@ async function addPicked(userDb: SupabaseClient, adminDb: SupabaseClient, userId
       google_place_id: c.match.id,
       name: c.match.name.slice(0, 300),
       name_local: c.name_local?.slice(0, 300) || null,
-      type: c.type,
-      area: c.area || null,
-      address: c.match.address,
+      type: c.type.slice(0, 30),
+      area: c.area?.slice(0, 200) || null,
+      address: c.match.address?.slice(0, 500) || null,
       lat: c.match.lat,
       lng: c.match.lng,
-      maps_url: c.match.mapsUrl ?? null,
-      periods: c.match.periods ?? null,
-      photo_path: c.match.photo_path ?? null,
-      photo_credit: c.match.photoCredit ?? null,
-      confidence: c.confidence,
+      // Built from the place id, never a URL taken from a page or the AI (it's opened when tapped).
+      maps_url: `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(c.match.id)}`,
+      periods: c.match.periods && JSON.stringify(c.match.periods).length <= 20000 ? c.match.periods : null,
+      // Photos live under the trip's folder (the database checks the prefix).
+      photo_path: c.match.photo_path?.startsWith(`${link.trip_id}/`) ? c.match.photo_path : null,
+      photo_credit: c.match.photoCredit?.slice(0, 500) ?? null,
+      confidence: c.confidence.slice(0, 20),
       details_fetched_at: new Date().toISOString(),
     }));
   const ids = [...new Set(rows.map((r) => r.google_place_id))];
@@ -277,15 +290,50 @@ async function cachedMatch(adminDb: SupabaseClient, query: string): Promise<{ ma
   return { match, calls: 1 };
 }
 
-/** One photo per Google place in the trip-photos bucket, shared by all trips. */
-async function storedPhoto(adminDb: SupabaseClient, placeId: string, photoName: string): Promise<{ path?: string; calls: number }> {
-  const path = `${placeId.replace(/[^A-Za-z0-9_-]/g, '')}.jpg`;
-  const { data: listed } = await adminDb.storage.from('trip-photos').list('', { search: path, limit: 1 });
-  if (listed?.some((f) => f.name === path)) return { path, calls: 0 };
-  const bytes = await fetchPhoto(photoName, googleKey);
-  if (!bytes) return { calls: 1 };
-  const { error } = await adminDb.storage.from('trip-photos').upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
-  return error ? { calls: 1 } : { path, calls: 1 };
+/**
+ * A place's photo in the trip's own folder (`<trip_id>/<place_id>.jpg`, as the database requires). The image is
+ * downloaded from Google once into `cache/` and copied into each trip that adds the place: copying inside
+ * storage is free, so a café saved in many trips costs one Google photo call.
+ */
+async function storedPhoto(adminDb: SupabaseClient, tripId: string, placeId: string, photoName: string): Promise<{ path?: string; calls: number }> {
+  const file = `${placeId.replace(/[^A-Za-z0-9_-]/g, '')}.jpg`;
+  const path = `${tripId}/${file}`;
+  const bucket = adminDb.storage.from('trip-photos');
+  const exists = async (folder: string) => ((await bucket.list(folder, { search: file, limit: 1 })).data ?? []).some((f) => f.name === file);
+  if (await exists(tripId)) return { path, calls: 0 };
+  let calls = 0;
+  if (!(await exists('cache'))) {
+    const bytes = await fetchPhoto(photoName, googleKey);
+    calls = 1;
+    if (!bytes) return { calls };
+    const { error } = await bucket.upload(`cache/${file}`, bytes, { contentType: 'image/jpeg', upsert: true });
+    if (error) return { calls };
+  }
+  const { error } = await bucket.copy(`cache/${file}`, path);
+  return error ? { calls } : { path, calls };
+}
+
+// ---------- delete a trip, with its photo folder (database cascades don't reach storage) ----------
+
+async function deleteTrip(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, tripId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(tripId)) return json({ error: 'trip not found' }, 404);
+  // Through RLS and checked against the caller: only the owner may delete.
+  const { data: trip } = await userDb.from('trips').select('id, owner_id').eq('id', tripId).maybeSingle();
+  if (!trip) return json({ error: 'trip not found' }, 404);
+  if (trip.owner_id !== userId) return json({ error: 'Only the person who created this trip can delete it.' }, 403);
+  const { error } = await userDb.from('trips').delete().eq('id', tripId);
+  if (error) throw error;
+  const bucket = adminDb.storage.from('trip-photos');
+  for (;;) {
+    const { data: files } = await bucket.list(tripId, { limit: 100 });
+    if (!files?.length) break;
+    const { error: rmError } = await bucket.remove(files.map((f) => `${tripId}/${f.name}`));
+    if (rmError) {
+      console.error('photo cleanup failed', tripId, rmError.message);
+      break;
+    }
+  }
+  return json({ deleted: tripId });
 }
 
 async function logUsage(adminDb: SupabaseClient, row: Record<string, unknown>) {

@@ -37,6 +37,28 @@ Notes for later (not bugs today):
 - **Hosted auth settings** (not in this repo, change them in the dashboard): add `tripbox://**` and the exact Tripbox web URL to the redirect allow list. Never add a wildcard like `https://*.vercel.app/**`: anyone can deploy there and receive sign-in tokens. Until the Tripbox URL is listed, Supabase falls back to Linkbox's site URL for email links.
 - Linkbox's own tables have the same default TRUNCATE/TRIGGER/REFERENCES grants to `anon` and `authenticated`. That's for Linkbox's repo to fix; Tripbox migrations don't touch Linkbox tables.
 
+## Step 2 status (2026-11-12)
+
+How `supabase/functions/tripbox-import` meets the requirements below:
+- 1, 2: the trip is read through the caller's client (RLS) before any work; `auth.getUser()` gives the user id;
+  places are written only for the authorised trip and the link just created for it. `add` reads the link
+  through RLS too.
+- 3: one link (≤ 2000 characters, `^https?://`) and up to 3000 characters of pasted text per call. A list of
+  links (bulk import) comes with step 7 and must follow the 20-link limit here.
+- 4: `post.ts` carries Linkbox's `safeFetch` / `assertPublicUrl` / `isPrivateIp` unchanged.
+- 5: the log table is `trip_usage` (kind, outcome, AI tokens, Google calls), checked before each import:
+  30 imports an hour and 150 a day per person, 2000 a day for everyone (env vars `TRIPBOX_IMPORTS_*`);
+  at most 300 links and 500 places per trip.
+- 6: the reply is parsed against a fixed schema (types and confidence from fixed lists); strings are cut to
+  the column limits before insert.
+- 7: `maps_url` is built from the place id.
+- 8: photos are downloaded from Google once into `trip-photos/cache/<place_id>.jpg` and copied into
+  `<trip_id>/<place_id>.jpg` for each trip (storage copies are free). The bucket is public; trip folders are
+  unguessable UUIDs. Trips are deleted through the function (`delete_trip`, owner only), which also removes
+  the trip's photo folder. Photos of places found but not added stay in the trip's folder until the trip is
+  deleted. Before a public launch: check Google's terms for storing Place Photos.
+- 10: still to do: database checks for `trip_usage`, `trip_place_cache` and the bucket in `trips_rls.test.sql`.
+
 ## Requirements for step 2 (import function)
 
 `tripbox-import` reads posts and pages from user-given URLs, asks the AI for places, looks them up on Google
