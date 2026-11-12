@@ -1,0 +1,5 @@
+# Copy to posts.txt: one saved post per line (30 XHS, 10 Instagram, 10 blogs for the spike).
+# Optionally add " | " and text you typed or copied from a screenshot (for videos or blocked posts):
+# https://www.xiaohongshu.com/explore/xxxxxxxx
+# https://www.instagram.com/p/xxxxxxxx/ | 永康街 思慕昔 芒果冰, 鼎泰豐 信義店
+# https://some-travel-blog.com/taipei-3-days

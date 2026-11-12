@@ -1,0 +1,15 @@
+{
+  "city": "Taipei",
+  "startDate": "2026-12-14",
+  "days": 3,
+  "hotel": { "name": "Your hotel", "lat": 25.0478, "lng": 121.5170 },
+  "dayStart": "09:30",
+  "dayEnd": "21:30",
+  "travelMode": "transit",
+  "maxMealsPerDay": 3,
+  "maxPlacesPerDay": 6,
+  "places": "out/places.json",
+  "pins": [
+    { "place": "Din Tai Fung", "day": 2, "time": "12:00" }
+  ]
+}

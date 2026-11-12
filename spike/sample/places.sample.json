@@ -1,0 +1,1344 @@
+[
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Taipei 101 Observatory",
+    "name_local": "台北101觀景台",
+    "area": "Xinyi",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-taipei-101-observatory",
+      "name": "Taipei 101 Observatory",
+      "address": "Xinyi, Taipei (approx.)",
+      "lat": 25.034,
+      "lng": 121.5645,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 21,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 21,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Din Tai Fung Xinyi",
+    "name_local": "鼎泰豐 信義店",
+    "area": "Da'an",
+    "type": "food",
+    "confidence": "high",
+    "match": {
+      "id": "sample-din-tai-fung-xinyi",
+      "name": "Din Tai Fung Xinyi",
+      "address": "Da'an, Taipei (approx.)",
+      "lat": 25.033,
+      "lng": 121.53,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 20,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 11,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 20,
+            "minute": 30
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Elephant Mountain",
+    "name_local": "象山",
+    "area": "Xinyi",
+    "type": "nature",
+    "confidence": "high",
+    "match": {
+      "id": "sample-elephant-mountain",
+      "name": "Elephant Mountain",
+      "address": "Xinyi, Taipei (approx.)",
+      "lat": 25.0273,
+      "lng": 121.5767
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Songshan Cultural and Creative Park",
+    "name_local": "松山文創園區",
+    "area": "Xinyi",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-songshan-cultural-and-creative-park",
+      "name": "Songshan Cultural and Creative Park",
+      "address": "Xinyi, Taipei (approx.)",
+      "lat": 25.0438,
+      "lng": 121.5606,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 18,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Raohe Night Market",
+    "name_local": "饒河街觀光夜市",
+    "area": "Songshan",
+    "type": "market",
+    "confidence": "high",
+    "match": {
+      "id": "sample-raohe-night-market",
+      "name": "Raohe Night Market",
+      "address": "Songshan, Taipei (approx.)",
+      "lat": 25.0509,
+      "lng": 121.5775,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 0,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Longshan Temple",
+    "name_local": "龍山寺",
+    "area": "Wanhua",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-longshan-temple",
+      "name": "Longshan Temple",
+      "address": "Wanhua, Taipei (approx.)",
+      "lat": 25.0372,
+      "lng": 121.4999,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 6,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 22,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Ximending",
+    "name_local": "西門町",
+    "area": "Wanhua",
+    "type": "shop",
+    "confidence": "high",
+    "match": {
+      "id": "sample-ximending",
+      "name": "Ximending",
+      "address": "Wanhua, Taipei (approx.)",
+      "lat": 25.0421,
+      "lng": 121.5079
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Chiang Kai-shek Memorial Hall",
+    "name_local": "中正紀念堂",
+    "area": "Zhongzheng",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-chiang-kai-shek-memorial-hall",
+      "name": "Chiang Kai-shek Memorial Hall",
+      "address": "Zhongzheng, Taipei (approx.)",
+      "lat": 25.0346,
+      "lng": 121.5218,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 18,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Fu Hang Dou Jiang",
+    "name_local": "阜杭豆漿",
+    "area": "Zhongzheng",
+    "type": "food",
+    "confidence": "high",
+    "match": {
+      "id": "sample-fu-hang-dou-jiang",
+      "name": "Fu Hang Dou Jiang",
+      "address": "Zhongzheng, Taipei (approx.)",
+      "lat": 25.0444,
+      "lng": 121.5246,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 0,
+            "hour": 12,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 2,
+            "hour": 12,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 3,
+            "hour": 12,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 4,
+            "hour": 12,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 5,
+            "hour": 12,
+            "minute": 30
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 5,
+            "minute": 30
+          },
+          "close": {
+            "day": 6,
+            "hour": 12,
+            "minute": 30
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Huashan 1914 Creative Park",
+    "name_local": "華山1914文化創意產業園區",
+    "area": "Zhongzheng",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-huashan-1914-creative-park",
+      "name": "Huashan 1914 Creative Park",
+      "address": "Zhongzheng, Taipei (approx.)",
+      "lat": 25.0441,
+      "lng": 121.5294
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Yongkang Street Mango Ice",
+    "name_local": "永康街芒果冰",
+    "area": "Da'an",
+    "type": "dessert",
+    "confidence": "high",
+    "match": {
+      "id": "sample-yongkang-street-mango-ice",
+      "name": "Yongkang Street Mango Ice",
+      "address": "Da'an, Taipei (approx.)",
+      "lat": 25.033,
+      "lng": 121.5297,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 22,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Dihua Street",
+    "name_local": "迪化街",
+    "area": "Datong",
+    "type": "shop",
+    "confidence": "high",
+    "match": {
+      "id": "sample-dihua-street",
+      "name": "Dihua Street",
+      "address": "Datong, Taipei (approx.)",
+      "lat": 25.056,
+      "lng": 121.51,
+      "periods": [
+        {
+          "open": {
+            "day": 1,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 19,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 19,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 19,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 19,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 19,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 19,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "National Palace Museum",
+    "name_local": "國立故宮博物院",
+    "area": "Shilin",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-national-palace-museum",
+      "name": "National Palace Museum",
+      "address": "Shilin, Taipei (approx.)",
+      "lat": 25.1024,
+      "lng": 121.5485,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 17,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 17,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 17,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 17,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 17,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 9,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 17,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Shilin Night Market",
+    "name_local": "士林夜市",
+    "area": "Shilin",
+    "type": "market",
+    "confidence": "high",
+    "match": {
+      "id": "sample-shilin-night-market",
+      "name": "Shilin Night Market",
+      "address": "Shilin, Taipei (approx.)",
+      "lat": 25.088,
+      "lng": 121.5241,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 16,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 0,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Beitou Hot Spring Museum",
+    "name_local": "北投溫泉博物館",
+    "area": "Beitou",
+    "type": "attraction",
+    "confidence": "high",
+    "match": {
+      "id": "sample-beitou-hot-spring-museum",
+      "name": "Beitou Hot Spring Museum",
+      "address": "Beitou, Taipei (approx.)",
+      "lat": 25.1366,
+      "lng": 121.507,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 18,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 18,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "post_url": "sample",
+    "platform": "sample",
+    "city": "Taipei",
+    "name": "Addiction Aquatic Development",
+    "name_local": "上引水產",
+    "area": "Zhongshan",
+    "type": "food",
+    "confidence": "high",
+    "match": {
+      "id": "sample-addiction-aquatic-development",
+      "name": "Addiction Aquatic Development",
+      "address": "Zhongshan, Taipei (approx.)",
+      "lat": 25.0662,
+      "lng": 121.5375,
+      "periods": [
+        {
+          "open": {
+            "day": 0,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 0,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 1,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 2,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 3,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 4,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 5,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 5,
+            "hour": 22,
+            "minute": 0
+          }
+        },
+        {
+          "open": {
+            "day": 6,
+            "hour": 10,
+            "minute": 0
+          },
+          "close": {
+            "day": 6,
+            "hour": 22,
+            "minute": 0
+          }
+        }
+      ]
+    }
+  }
+]

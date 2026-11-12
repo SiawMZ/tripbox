@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "extract": "deno run --env-file=.env --allow-env --allow-read --allow-write=cache,out --allow-net extract.ts",
+    "photos": "deno run --env-file=.env --allow-env --allow-read --allow-write=out --allow-net photos.ts",
+    "plan": "deno bundle --quiet --platform=browser --format=esm lib/planner.ts -o out/planner.js && deno run --allow-read --allow-write=out plan.ts",
+    "plan:sample": "deno bundle --quiet --platform=browser --format=esm lib/planner.ts -o out/planner.js && deno run --allow-read --allow-write=out plan.ts --trip=sample/trip.sample.json"
+  }
+}

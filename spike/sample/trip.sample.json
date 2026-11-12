@@ -1,0 +1,14 @@
+{
+  "city": "Taipei",
+  "startDate": "2026-12-14",
+  "days": 3,
+  "hotel": { "name": "Hotel near Taipei Main Station (sample)", "lat": 25.0478, "lng": 121.5170 },
+  "dayStart": "09:30",
+  "dayEnd": "21:30",
+  "travelMode": "transit",
+  "places": "places.sample.json",
+  "pins": [
+    { "place": "Din Tai Fung", "day": 2, "time": "12:00" },
+    { "place": "Taipei 101", "day": 2, "time": "18:30" }
+  ]
+}
