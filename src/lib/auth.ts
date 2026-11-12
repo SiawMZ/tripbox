@@ -53,7 +53,7 @@ const GOOGLE_PARAMS = { prompt: 'select_account' };
 
 /**
  * Web: full-page redirect to Google; supabase-js picks the session up from the URL on return.
- * Phone: opens Google in a browser tab that hands a one-time code back through the linkbox:// scheme.
+ * Phone: opens Google in a browser tab that hands a one-time code back through the tripbox:// scheme.
  */
 export async function signInWithGoogle() {
   if (Platform.OS === 'web') {
@@ -65,11 +65,11 @@ export async function signInWithGoogle() {
     return;
   }
 
-  // PKCE: the linkbox:// redirect carries a one-time code instead of the tokens. Another app that
+  // PKCE: the tripbox:// redirect carries a one-time code instead of the tokens. Another app that
   // registers the same scheme could receive the redirect, but can't use the code without the
   // verifier, which stays in this process.
   const pkce = createClient(process.env.EXPO_PUBLIC_SUPABASE_URL!, process.env.EXPO_PUBLIC_SUPABASE_KEY!, {
-    auth: { flowType: 'pkce', persistSession: false, autoRefreshToken: false, storageKey: 'linkbox-pkce' },
+    auth: { flowType: 'pkce', persistSession: false, autoRefreshToken: false, storageKey: 'tripbox-pkce' },
   });
   const redirectTo = Linking.createURL('/');
   const { data, error } = await pkce.auth.signInWithOAuth({

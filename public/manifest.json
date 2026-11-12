@@ -1,6 +1,6 @@
 {
-  "name": "Linkbox",
-  "short_name": "Linkbox",
+  "name": "Tripbox",
+  "short_name": "Tripbox",
   "description": "Your saved posts from every app, in one place.",
   "id": "/",
   "start_url": "/",

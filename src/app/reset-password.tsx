@@ -96,7 +96,7 @@ export default function ResetPassword() {
         <View style={styles.form}>
           <View style={{ gap: space.sm }}>
             <View style={[styles.mark, { backgroundColor: c.accent }]} />
-            <T style={[styles.brand, { color: c.text }]}>Linkbox</T>
+            <T style={[styles.brand, { color: c.text }]}>Tripbox</T>
           </View>
           <Rule strong />
           <T variant="label">01  New password</T>

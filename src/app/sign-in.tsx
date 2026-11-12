@@ -97,9 +97,9 @@ export default function SignIn() {
           <View style={styles.form}>
             <View style={{ gap: space.sm }}>
               <View style={[styles.mark, { backgroundColor: c.accent }]} />
-              <T style={[styles.brand, { color: c.text }]}>Linkbox</T>
+              <T style={[styles.brand, { color: c.text }]}>Tripbox</T>
               <T variant="heading" tone="muted">
-                Every saved post, from every app, in one place.
+                Turn the places you saved into a 顺路 trip plan.
               </T>
             </View>
             <Rule strong />

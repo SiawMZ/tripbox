@@ -2,18 +2,16 @@ import { router } from 'expo-router';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Button, Rule, T } from '@/components/ui';
+import { Rule, T } from '@/components/ui';
 import { useStore } from '@/lib/store';
 import { fonts, space, useColors } from '@/lib/theme';
 
 const LABELS: Record<string, string> = {
-  index: 'Links',
-  folders: 'Folders',
-  tags: 'Tags',
+  index: 'Trips',
   profile: 'Profile',
 };
 
-/** Bottom tab bar on phones; a sidebar listing folders on wide screens. */
+/** Bottom tab bar on phones; a sidebar listing the trips on wide screens. */
 export function NavBar({ wide, ...props }: BottomTabBarProps & { wide: boolean }) {
   return wide ? <Sidebar {...props} /> : <BottomBar {...props} />;
 }
@@ -45,57 +43,38 @@ function BottomBar({ state, navigateToTab, insets }: BottomTabBarProps) {
 
 function Sidebar({ state, navigateToTab, insets }: BottomTabBarProps) {
   const c = useColors();
-  const { folders, links, joinedLinks } = useStore();
-  const linksRoute = state.routes.find((r) => r.name === 'index');
-  const params = (linksRoute?.params ?? {}) as { folder?: string; label?: string };
-  const onLinks = state.routes[state.index]?.name === 'index';
-  const activeFolder = onLinks ? params.folder : undefined;
-
-  const counts = new Map<string, number>();
-  for (const l of [...links, ...joinedLinks]) if (l.folder_id) counts.set(l.folder_id, (counts.get(l.folder_id) ?? 0) + 1);
-  // All links shows one card per post, mine and other members' in shared folders.
-  const total = new Set([...links, ...joinedLinks].map((l) => l.normalized_url)).size;
-
+  const { trips } = useStore();
   return (
     <View style={[styles.side, { backgroundColor: c.bg, borderRightColor: c.line, paddingTop: insets.top + space.xl }]}>
-      <T style={[styles.brand, { color: c.text }]}>Linkbox</T>
-      <Button label="+ Add link" onPress={() => router.push('/add')} style={{ marginTop: space.lg }} />
+      <T style={[styles.brand, { color: c.text }]}>Tripbox</T>
       <ScrollView style={{ marginTop: space.xl }} contentContainerStyle={{ gap: space.xs }}>
-        {state.routes.map((route, i) => {
-          const active = state.index === i && !(route.name === 'index' && (params.folder || params.label));
-          return (
-            <View key={route.key}>
-              <SideItem
-                label={LABELS[route.name] ?? route.name}
-                count={route.name === 'index' ? total : route.name === 'folders' ? folders.length : undefined}
-                active={active}
-                onPress={() =>
-                  route.name === 'index'
-                    ? router.navigate({ pathname: '/', params: { folder: '', label: '' } })
-                    : navigateToTab(route.key)
-                }
-              />
-              {route.name === 'folders' && folders.length ? (
-                <View style={{ paddingLeft: space.xl, paddingBottom: space.sm }}>
-                  {folders.map((f) => (
-                    <SideItem
-                      key={f.id}
-                      label={f.name}
-                      count={counts.get(f.id) ?? 0}
-                      active={activeFolder === f.id}
-                      small
-                      onPress={() => router.navigate({ pathname: '/', params: { folder: f.id, label: '' } })}
-                    />
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          );
-        })}
+        {state.routes.map((route, i) => (
+          <View key={route.key}>
+            <SideItem
+              label={LABELS[route.name] ?? route.name}
+              count={route.name === 'index' ? trips.length : undefined}
+              active={state.index === i}
+              onPress={() => navigateToTab(route.key)}
+            />
+            {route.name === 'index' && trips.length ? (
+              <View style={{ paddingLeft: space.xl, paddingBottom: space.sm }}>
+                {trips.map((t) => (
+                  <SideItem
+                    key={t.id}
+                    label={t.name}
+                    count={t.place_count}
+                    small
+                    onPress={() => router.push({ pathname: '/trip/[id]', params: { id: t.id } })}
+                  />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ))}
       </ScrollView>
       <Rule />
       <T variant="small" tone="muted" style={{ paddingVertical: space.md }}>
-        Every saved post, in one place.
+        Saved places, planned 顺路.
       </T>
     </View>
   );

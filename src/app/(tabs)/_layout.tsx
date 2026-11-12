@@ -14,9 +14,7 @@ export default function TabsLayout() {
         tabBarPosition: wide ? 'left' : 'bottom',
         sceneStyle: { backgroundColor: c.bg },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Links' }} />
-      <Tabs.Screen name="folders" options={{ title: 'Folders' }} />
-      <Tabs.Screen name="tags" options={{ title: 'Tags' }} />
+      <Tabs.Screen name="index" options={{ title: 'Trips' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Linkbox",
-    "slug": "linkbox",
-    "version": "1.0.1",
+    "name": "Tripbox",
+    "slug": "tripbox",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "linkbox",
+    "scheme": "tripbox",
     "userInterfaceStyle": "automatic",
     "ios": {},
     "android": {
@@ -16,7 +16,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.siawmz.linkbox",
+      "package": "com.siawmz.tripbox",
       "intentFilters": [
         {
           "action": "SEND",
@@ -59,16 +59,10 @@
         "asyncRoutes": {
           "web": true
         }
-      },
-      "eas": {
-        "projectId": "ab61fa57-7ab2-4d79-b486-32334c1f6562"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/ab61fa57-7ab2-4d79-b486-32334c1f6562"
     }
   }
 }
