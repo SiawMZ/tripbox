@@ -1,8 +1,9 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { locateTrip } from './importer';
 import { supabase } from './supabase';
-import type { NewTrip, Trip, TripPatch } from './types';
+import type { NewTrip, Place, Trip, TripPatch } from './types';
 
 type Store = {
   session: Session | null;
@@ -14,6 +15,9 @@ type Store = {
   updateTrip: (id: string, patch: TripPatch) => Promise<void>;
   /** Owner only: deletes the trip with its links and places. */
   deleteTrip: (id: string) => Promise<void>;
+  /** Places saved to each trip (not removed), loaded per trip when it's opened. */
+  places: Record<string, Place[]>;
+  loadPlaces: (tripId: string) => Promise<void>;
   /** Deletes every trip I own. The login stays: it is shared with Linkbox. */
   deleteMyTrips: () => Promise<number>;
   /** My display name, shown to people in trips I share (shared with Linkbox's profiles). */
@@ -51,6 +55,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(false);
   const [displayName, setDisplayNameState] = useState<string | null>(null);
+  const [places, setPlaces] = useState<Record<string, Place[]>>({});
   const userId = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -81,6 +86,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (id === userId.current) return; // token refresh, same user
       userId.current = id;
       setTrips([]);
+      setPlaces({});
       // Supabase calls inside this callback can deadlock the auth lock, so defer.
       if (id) setTimeout(() => void refresh().catch(() => {}), 0);
     });
@@ -96,6 +102,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
     const created = { ...(data as Trip), place_count: 0 };
     setTrips((prev) => sortTrips([...prev, created]));
+    // Start each day from the city centre until the traveller sets a hotel (needs Google, so the function does it).
+    void locateTrip(created.id)
+      .then(({ hotel }) =>
+        setTrips((prev) => prev.map((t) => (t.id === created.id ? { ...t, hotel_name: hotel.name, hotel_lat: hotel.lat, hotel_lng: hotel.lng } : t))),
+      )
+      .catch(() => {});
     return created;
   }, []);
 
@@ -111,6 +123,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
     if (!data?.length) throw new Error('Only the person who created this trip can delete it.');
     setTrips((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const loadPlaces = useCallback(async (tripId: string) => {
+    const { data, error } = await supabase
+      .from('trip_places')
+      .select('*')
+      .eq('trip_id', tripId)
+      .eq('removed', false)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const rows = data as Place[];
+    setPlaces((prev) => ({ ...prev, [tripId]: rows }));
+    setTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, place_count: rows.length } : t)));
   }, []);
 
   const deleteMyTrips = useCallback(async () => {
@@ -140,11 +165,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createTrip,
       updateTrip,
       deleteTrip,
+      places,
+      loadPlaces,
       deleteMyTrips,
       displayName,
       setDisplayName,
     }),
-    [session, authReady, trips, loading, refresh, createTrip, updateTrip, deleteTrip, deleteMyTrips, displayName, setDisplayName],
+    [session, authReady, trips, loading, refresh, createTrip, updateTrip, deleteTrip, places, loadPlaces, deleteMyTrips, displayName, setDisplayName],
   );
 
   return <StoreContext value={value}>{children}</StoreContext>;

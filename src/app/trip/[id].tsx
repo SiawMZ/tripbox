@@ -1,20 +1,29 @@
+import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { ImportSheet } from '@/components/import-sheet';
 import { Button, Field, ScreenHeader, SectionLabel, T } from '@/components/ui';
 import { confirm } from '@/lib/confirm';
 import { dateRange, isIsoDate } from '@/lib/dates';
+import { photoUrl } from '@/lib/importer';
 import { useStore } from '@/lib/store';
-import type { Trip } from '@/lib/types';
+import type { Place, Trip } from '@/lib/types';
 import { space, useColors } from '@/lib/theme';
 
-/** One trip. Step 1: details, rename and delete. Import (step 2) and the plan with its map (step 3) come next. */
+/** One trip: its places (import links into it), details, and delete. The plan with its map comes in step 3. */
 export default function TripScreen() {
   const c = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { trips, session } = useStore();
+  const { trips, session, places, loadPlaces } = useStore();
   const trip = trips.find((t) => t.id === id);
+  const [importing, setImporting] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id) void loadPlaces(id).catch(() => {});
+  }, [id, loadPlaces]);
 
   if (!trip) {
     return (
@@ -33,12 +42,24 @@ export default function TripScreen() {
       <ScreenHeader title={trip.name} meta={`${trip.city}  ·  ${dateRange(trip.start_date, trip.days)}`} />
 
       <SectionLabel index="01">Places</SectionLabel>
-      <T tone="muted">
-        {trip.place_count
-          ? `${trip.place_count} place${trip.place_count === 1 ? '' : 's'} saved.`
-          : 'No places yet.'}{' '}
-        Importing links and the day-by-day plan with its map are the next steps of the build.
-      </T>
+      <View style={styles.row}>
+        <Button label="+ Import link" onPress={() => setImporting(true)} />
+        <T variant="small" tone="muted" style={{ flex: 1, alignSelf: 'center' }}>
+          {trip.hotel_name ? `Days start from ${trip.hotel_name}.` : ''}
+        </T>
+      </View>
+      {note ? <T tone="muted">{note}</T> : null}
+      <PlaceList places={places[trip.id]} />
+      <ImportSheet
+        tripId={trip.id}
+        visible={importing}
+        onClose={() => setImporting(false)}
+        onAdded={(n) => {
+          setImporting(false);
+          setNote(`Added ${n} place${n === 1 ? '' : 's'}. The day-by-day plan comes in the next step of the build.`);
+          void loadPlaces(trip.id).catch(() => {});
+        }}
+      />
 
       <SectionLabel index="02">Trip details</SectionLabel>
       <TripDetails key={trip.updated_at} trip={trip} />
@@ -50,6 +71,46 @@ export default function TripScreen() {
         <T tone="muted">Leaving a trip you were invited to comes with collaborators (step 4).</T>
       )}
     </ScrollView>
+  );
+}
+
+function PlaceList({ places }: { places: Place[] | undefined }) {
+  const c = useColors();
+  if (!places) return <T tone="muted">Loading places…</T>;
+  if (!places.length) {
+    return (
+      <T tone="muted">
+        No places yet. Import links to posts you saved on Xiaohongshu, Instagram, YouTube, TikTok or travel blogs; the
+        places in them become this trip’s plan.
+      </T>
+    );
+  }
+  return (
+    <View style={{ gap: space.sm }}>
+      {places.map((p) => {
+        const photo = photoUrl(p.photo_path);
+        return (
+          <Pressable
+            key={p.id}
+            onPress={() => (p.maps_url ? void Linking.openURL(p.maps_url) : undefined)}
+            accessibilityRole="link"
+            accessibilityLabel={`${p.name}, open in Google Maps`}
+            style={styles.place}>
+            {photo ? <Image source={{ uri: photo }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: c.surface }]} />}
+            <View style={{ flex: 1, gap: 2 }}>
+              <T variant="bodyStrong" numberOfLines={1}>
+                {p.name}
+                {p.name_local && p.name_local !== p.name ? <T variant="small" tone="muted">{`  ${p.name_local}`}</T> : null}
+              </T>
+              <T variant="small" tone="muted" numberOfLines={1}>
+                {p.type}
+                {p.area ? ` · ${p.area}` : ''}
+              </T>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -136,4 +197,6 @@ function DeleteTrip({ trip }: { trip: Trip }) {
 const styles = StyleSheet.create({
   container: { padding: space.xl, paddingBottom: space.xxxl, gap: space.xl, width: '100%', maxWidth: 760, alignSelf: 'center' },
   row: { flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' },
+  place: { flexDirection: 'row', gap: space.md, alignItems: 'center' },
+  thumb: { width: 48, height: 48 },
 });

@@ -42,3 +42,31 @@ export type TripPatch = Partial<
 >;
 
 export type NewTrip = Pick<Trip, 'name' | 'city' | 'start_date' | 'days'>;
+
+/** A row of public.trip_places: one real place in a trip, shared by its members. */
+export type Place = {
+  id: string;
+  trip_id: string;
+  link_id: string | null;
+  added_by: string | null;
+  google_place_id: string;
+  name: string;
+  name_local: string | null;
+  type: string;
+  area: string | null;
+  address: string | null;
+  lat: number;
+  lng: number;
+  maps_url: string | null;
+  periods: unknown;
+  photo_path: string | null;
+  photo_credit: string | null;
+  confidence: string | null;
+  must: boolean;
+  fixed_day: number | null;
+  fixed_time: string | null;
+  note: string | null;
+  duration_min: number | null;
+  removed: boolean;
+  created_at: string;
+};
