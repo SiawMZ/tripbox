@@ -37,6 +37,30 @@
   li.dragging { opacity: 0.4; }
   section.day { outline: 2px dashed transparent; outline-offset: 2px; }
   section.day.drop-on { outline-color: var(--red); background: #ece9e2; }
+  .back { display: inline-block; font-size: 12px; color: var(--quiet); text-decoration: none; margin-bottom: 6px; }
+  .back:hover { color: var(--ink); }
+  #importer { position: fixed; inset: 0; z-index: 1001; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; }
+  #importer[hidden], #toast[hidden] { display: none; }
+  .imp textarea, .imp input[type=url] { width: 100%; padding: 8px; border: 2px solid var(--ink); background: #fff; font: 14px system-ui; }
+  .imp textarea { min-height: 72px; resize: vertical; }
+  .imp .pad { padding: 12px 16px; display: grid; gap: 10px; }
+  .steps { list-style: none; margin: 0; padding: 8px 16px; }
+  .steps li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: default; }
+  .steps li:hover { background: none; }
+  .steps .st { width: 22px; height: 22px; border: 2px solid var(--line); border-radius: 50%; display: grid; place-items: center; font-size: 12px; }
+  .steps li.done .st { border-color: var(--ink); background: var(--ink); color: #fff; }
+  .steps li.now .st { border-color: var(--red); border-top-color: transparent; animation: spin 0.8s linear infinite; }
+  .steps li.later { color: var(--quiet); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .source { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .source img, .source .ph { width: 64px; height: 64px; object-fit: cover; background: var(--line); display: block; }
+  .rate { display: flex; gap: 8px; align-items: center; padding: 8px 16px; font-size: 13px; color: var(--quiet); border-bottom: 1px solid var(--line); }
+  .rate button { border: 1px solid var(--line); background: #fff; padding: 4px 10px; cursor: pointer; font-size: 15px; }
+  .rate button.on { border-color: var(--red); }
+  .warn { color: var(--red); font-size: 12px; }
+  .imp footer { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+  .imp footer .ghost { background: none; color: var(--ink); border: 2px solid var(--ink); }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; z-index: 1002; max-width: 90vw; font-size: 14px; }
   h2 .add { margin-left: auto; font: 600 12px system-ui; border: 2px solid var(--ink); background: var(--paper); padding: 2px 8px; cursor: pointer; }
   #sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; }
   #sheet[hidden] { display: none; }
@@ -80,36 +104,45 @@
 <aside id="side"></aside>
 <div id="map"></div>
 <div id="sheet" hidden></div>
+<div id="importer" hidden></div>
+<div id="toast" hidden></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script type="module">
   // Places tab: star must-gos (★) or remove places (✕), then Plan runs the same planner in the browser.
-  // Load the latest plan and planner every time: browsers cache them, and a stale planner.js once kept
-  // running old code after a fix.
-  const bust = Date.now();
-  await new Promise((resolve) => {
-    const tag = document.createElement('script');
-    tag.src = `out/plan.js?v=${bust}`;
-    tag.onload = tag.onerror = resolve;
-    document.head.append(tag);
-  });
-  const { planTrip } = await import(`./out/planner.js?v=${bust}`);
-
+  // The trip comes from the local server (`deno task serve`); the planner runs here in the browser and
+  // loads fresh every time (browsers cache it, and a stale planner.js once kept running old code).
   const COLORS = ['#e3000f', '#1f5fbf', '#2f8a3b', '#b8860b', '#7a3fb0', '#0f8f8f', '#c2541a'];
   const side = document.getElementById('side');
-  const TRIP = window.TRIP;
-  let plan = window.PLAN;
-  if (!plan || !TRIP) {
-    side.innerHTML = '<div class="empty"><h1>No plan yet</h1><p>Run <code>deno task plan</code> first, then reload.</p></div>';
-    throw new Error('no plan');
+  const params = new URLSearchParams(location.search);
+  const tripId = params.get('trip');
+  if (!tripId) location.replace('./');
+  const { planTrip } = await import(`./out/planner.js?v=${Date.now()}`);
+  const api = async (path, init) => {
+    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}${path}`, init);
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `Request failed (${res.status})`);
+    return out;
+  };
+  let TRIP;
+  let tripName;
+  try {
+    const payload = await api('');
+    TRIP = payload.input;
+    tripName = payload.trip.name;
+  } catch (e) {
+    side.innerHTML = `<div class="empty"><h1>Couldn’t open this trip</h1><p>${String(e.message).replace(/</g, '&lt;')}</p><p>Is the local server running (<code>deno task serve</code>)? <a href="./">All trips</a></p></div>`;
+    throw e;
   }
+  let plan = { days: [], maybe: [] };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const label = (p) => (p.nameLocal && p.nameLocal !== p.name ? `${esc(p.name)} <span class="tag">${esc(p.nameLocal)}</span>` : esc(p.name));
 
-  // Stars and trip settings are kept in this browser; the starting values come from trip.json.
-  const storeKey = `tripbox:${TRIP.city}`;
+  // Stars, chosen days and removals are kept in this browser, per trip. Trip settings live on the
+  // server (trip.json), so the home page shows the same dates.
+  const storeKey = `tripbox:trip:${tripId}`;
   const saved = (() => { try { return JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch { return null; } })();
   const state = saved?.choices ?? Object.fromEntries(TRIP.places.map((p) => [p.key, p.must ? 'must' : 'want']));
-  const settings = saved?.settings ?? {
+  const settings = {
     startDate: TRIP.startDate,
     days: TRIP.days,
     dayStart: TRIP.dayStart,
@@ -133,7 +166,22 @@
     locks = {};
     for (const d of plan.days) for (const s of d.stops) if (!s.pinned) locks[s.key] = d.day;
   };
-  const save = () => { try { localStorage.setItem(storeKey, JSON.stringify({ choices: state, settings, dayChoice })); } catch {} };
+  const save = () => { try { localStorage.setItem(storeKey, JSON.stringify({ choices: state, dayChoice })); } catch {} };
+  const saveSettings = () => {
+    api('', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...settings,
+        days: Number(settings.days) || 1,
+        maxMealsPerDay: Number(settings.maxMealsPerDay) || 3,
+        maxPlacesPerDay: Number(settings.maxPlacesPerDay) || undefined,
+      }),
+    }).catch((e) => toast(`Couldn’t save the trip settings: ${e.message}`));
+  };
+  // Places added since this browser last saw the trip start as "maybe" (not starred).
+  const ensureState = () => { for (const p of TRIP.places) state[p.key] ??= p.must ? 'must' : 'want'; };
+  ensureState();
   const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dateOf = (day) => { const d = new Date(`${settings.startDate}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + day - 1); return d; };
   const closedOn = (p, day) => {
@@ -158,7 +206,6 @@
       .map((p) => ({ ...p, must: state[p.key] === 'must', day: chosen(p.key) && !chosen(p.key).time ? chosen(p.key).day : locks[p.key] <= days ? locks[p.key] : undefined }));
     const pins = places.flatMap((p) => (chosen(p.key)?.time ? [{ key: p.key, day: chosen(p.key).day, time: chosen(p.key).time }] : []));
     plan = {
-      trip: plan.trip,
       ...planTrip({
         ...TRIP,
         startDate: settings.startDate,
@@ -215,7 +262,12 @@
     for (const m of plan.maybe) {
       markers.push(L.circleMarker([m.lat, m.lng], { radius: 5, color: '#6b6863', weight: 1, fillOpacity: 0.25 }).addTo(layer).bindPopup(`<b>${label(m)}</b><br>${esc(m.reason)}`));
     }
-    if (fit) { map.invalidateSize(); map.fitBounds(bounds, { padding: [30, 30] }); }
+    if (fit) {
+      map.invalidateSize();
+      // A new trip has only its start point: show the city around it instead of zooming all the way in.
+      if (bounds.length === 1) map.setView(bounds[0], 13);
+      else map.fitBounds(bounds, { padding: [30, 30] });
+    }
   }
 
   // ---------- Add sheet: pick saved places for a day (or any day), then re-optimize at once ----------
@@ -328,8 +380,209 @@
     if (key && (!from || from.day !== day)) moveToDay(key, day);
   });
 
+  // ---------- Import a link: paste -> progress -> review the places found -> add to this trip ----------
+  const impEl = document.getElementById('importer');
+  const toastEl = document.getElementById('toast');
+  const STEPS = [
+    ['open', 'Opening the post'],
+    ['read', 'Reading its text and pictures'],
+    ['find', 'Finding places'],
+    ['details', 'Checking each place on the map'],
+    ['done', 'Your places are ready'],
+  ];
+  const preview = L.layerGroup().addTo(map);
+  let imp = null;
+  let toastTimer;
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastEl.hidden = true), 6000);
+  }
+
+  function openImport() {
+    imp = { phase: 'input', url: '', text: '', at: null, detail: '', picked: new Set(), rated: null };
+    drawImport();
+    impEl.querySelector('#impurl')?.focus();
+  }
+  function closeImport() {
+    imp = null;
+    preview.clearLayers();
+    drawImport();
+  }
+
+  function drawImport() {
+    if (!imp) { impEl.hidden = true; impEl.innerHTML = ''; return; }
+    let body = '';
+    if (imp.phase === 'input' || imp.phase === 'error') {
+      body = `<div class="pad">
+        <label class="travel">Link to a post or page<input type="url" id="impurl" placeholder="https://www.xiaohongshu.com/… or Instagram, YouTube, a blog…" value="${esc(imp.url)}"></label>
+        <label class="travel">Place names or post text (optional: for videos, or posts that won't open)<textarea id="imptext" placeholder="e.g. 鼎泰豐 信義店, 永康街 思慕昔">${esc(imp.text)}</textarea></label>
+        ${imp.phase === 'error' ? `<p class="warn">${esc(imp.error)}</p>` : ''}
+      </div>
+      <footer><button data-imp="close" class="ghost">Cancel</button><button data-imp="go">Find places</button></footer>`;
+    } else if (imp.phase === 'working') {
+      const at = STEPS.findIndex(([k]) => k === imp.at);
+      body = `<ol class="steps">${STEPS.map(([, text], i) => {
+        const cls = i < at ? 'done' : i === at ? 'now' : 'later';
+        return `<li class="${cls}"><span class="st">${i < at ? '✓' : ''}</span><span>${text}</span><span class="travel">${i === at ? esc(imp.detail) : ''}</span></li>`;
+      }).join('')}</ol><p class="travel" style="padding:0 16px 12px">Most posts take 5–15 seconds; posts with many pictures take longer.</p>`;
+    } else {
+      const r = imp.result;
+      const src = r.source;
+      body = `<div class="source">${src.image ? `<img src="${esc(src.image)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=ph></span>'">` : '<span class="ph"></span>'}
+          <div><b>${esc(src.title || src.url || 'Pasted text')}</b><br><span class="tag">${esc(src.platform)}${src.author ? ` · ${esc(src.author)}` : ''}${src.readImages ? ' · read the pictures too' : ''}</span></div></div>
+        <div class="rate">How was this import? <button data-rate="good" class="${imp.rated === 'good' ? 'on' : ''}" title="Good">👍</button><button data-rate="bad" class="${imp.rated === 'bad' ? 'on' : ''}" title="Wrong or missing places">👎</button>${imp.rated ? ' Thanks!' : ''}</div>
+        <div class="list">`;
+      if (!r.places.length) {
+        body += `<p class="travel" style="padding:12px 0">No places found in this post. If they're only in the video or pictures, go back and type the place names in the box.</p>`;
+      }
+      r.places.forEach((p, i) => {
+        const on = imp.picked.has(i);
+        const note = !p.matched ? 'Not found on the map'
+          : p.already ? 'Already in this trip'
+          : p.kmAway > r.maxKm ? `${p.kmAway.toLocaleString()} km from your start: probably another place with the same name`
+          : p.confidence === 'low' ? 'Unsure: check this is the right place' : '';
+        body += `<div class="item${on ? ' on' : ''}" data-imppick="${i}">${p.photo ? `<img class="thumb" src="${esc(p.photo)}" alt="">` : '<span class="thumb none"></span>'}
+          <span>${esc(p.name)}${p.nameLocal && p.nameLocal !== p.name ? ` <span class="tag">${esc(p.nameLocal)}</span>` : ''}<br><span class="tag">${esc(p.type)}${p.address ? ` · ${esc(p.address)}` : ''}</span>${note ? `<br><span class="${p.matched && !p.already ? 'warn' : 'travel'}">${esc(note)}</span>` : ''}</span>
+          <span class="tick">${on ? '✓' : ''}</span></div>`;
+      });
+      const n = imp.picked.size;
+      const all = r.places.length && n === r.places.filter((p) => p.matched).length;
+      body += `</div><footer>${r.places.length ? `<button data-imp="${all ? 'none' : 'all'}" class="ghost">${all ? 'Deselect all' : 'Select all'}</button>` : `<button data-imp="back" class="ghost">Back</button>`}
+        <button data-imp="add"${n ? '' : ' disabled'}>${n ? `Add ${n} place${n > 1 ? 's' : ''} to this trip` : 'Pick places to add'}</button></footer>`;
+    }
+    const title = imp.phase === 'review' ? `Found ${imp.result.places.length} place${imp.result.places.length === 1 ? '' : 's'}` : 'Import a link';
+    impEl.innerHTML = `<div class="sheet imp" role="dialog" aria-label="${title}"><header><h3>${title}</h3><button data-imp="close" class="add" aria-label="Close">✕</button></header>${body}</div>`;
+    impEl.hidden = false;
+  }
+
+  async function runImport() {
+    imp.url = impEl.querySelector('#impurl').value.trim();
+    imp.text = impEl.querySelector('#imptext').value.trim();
+    if (!imp.url && !imp.text) { imp.phase = 'error'; imp.error = 'Paste a link, or type the place names.'; drawImport(); return; }
+    imp.phase = 'working';
+    imp.at = 'open';
+    imp.detail = '';
+    drawImport();
+    try {
+      const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imp.url, text: imp.text }),
+      });
+      // One JSON line per step, so the checklist moves while the server works.
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (line && imp) onImportEvent(JSON.parse(line));
+        }
+      }
+    } catch (e) {
+      if (imp) { imp.phase = 'error'; imp.error = `Couldn't reach the local server: ${e.message}`; drawImport(); }
+    }
+  }
+
+  function onImportEvent(ev) {
+    if (ev.step === 'error') {
+      imp.phase = 'error';
+      imp.error = ev.message;
+    } else if (ev.step === 'done') {
+      imp.phase = 'review';
+      imp.result = ev;
+      // Ticked by default: found on the map, new to this trip, and near the start point.
+      imp.picked = new Set(ev.places.map((p, i) => (p.matched && !p.already && p.kmAway <= ev.maxKm ? i : -1)).filter((i) => i >= 0));
+      showPreview();
+    } else {
+      imp.at = ev.step === 'find' && ev.count ? 'details' : ev.step;
+      imp.detail = ev.step === 'find' ? `${ev.count} found` : ev.step === 'details' ? `${ev.done} of ${ev.total}` : '';
+    }
+    drawImport();
+  }
+
+  // The places found, as purple dots on the map while the user reviews them.
+  function showPreview() {
+    preview.clearLayers();
+    const near = imp.result.places.filter((p) => p.lat != null && p.kmAway <= imp.result.maxKm);
+    for (const [i, p] of imp.result.places.entries()) {
+      if (p.lat == null) continue;
+      L.circleMarker([p.lat, p.lng], { radius: 9, color: '#7a3fb0', weight: 2, fillOpacity: 0.5 })
+        .addTo(preview).bindTooltip(`${i + 1}. ${p.name}`);
+    }
+    if (near.length) map.fitBounds(near.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 15 });
+  }
+
+  async function addImported() {
+    const picks = [...imp.picked];
+    const btn = impEl.querySelector('[data-imp=add]');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    try {
+      const out = await api('/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importId: imp.result.importId, picks }),
+      });
+      TRIP = out.input;
+      ensureState();
+      // Keep the current days as they are; new places join where they're on the way.
+      if (plan.days.some((d) => d.stops.length)) lockCurrentDays();
+      closeImport();
+      replan();
+      const added = new Set(out.added);
+      const inPlan = plan.days.flatMap((d) => d.stops).filter((s) => added.has(s.key)).length;
+      toast(`Added ${added.size} place${added.size === 1 ? '' : 's'}: ${inPlan} in the plan${added.size - inPlan ? `, ${added.size - inPlan} in Maybe (star or drag the ones you want)` : ''}.`);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Try again';
+      toast(e.message);
+    }
+  }
+
+  impEl.addEventListener('click', (e) => {
+    if (e.target === impEl && imp?.phase !== 'working') { closeImport(); return; }
+    const pick = e.target.closest('[data-imppick]');
+    if (pick) {
+      const i = Number(pick.dataset.imppick);
+      if (!imp.result.places[i].matched) return;
+      imp.picked.has(i) ? imp.picked.delete(i) : imp.picked.add(i);
+      drawImport();
+      return;
+    }
+    const rate = e.target.closest('[data-rate]')?.dataset.rate;
+    if (rate) {
+      imp.rated = rate;
+      api('/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importId: imp.result.importId, rating: rate }) }).catch(() => {});
+      drawImport();
+      return;
+    }
+    const act = e.target.closest('[data-imp]')?.dataset.imp;
+    if (act === 'close') closeImport();
+    if (act === 'go') runImport();
+    if (act === 'back') { imp.phase = 'input'; drawImport(); }
+    if (act === 'all') { imp.picked = new Set(imp.result.places.map((p, i) => (p.matched ? i : -1)).filter((i) => i >= 0)); drawImport(); }
+    if (act === 'none') { imp.picked = new Set(); drawImport(); }
+    if (act === 'add') addImported();
+  });
+  impEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'impurl') runImport();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && imp && imp.phase !== 'working') closeImport(); });
+
   function planHtml() {
-    let html = `<div class="bar"><button class="primary" data-addday="0">+ Add places</button><button data-act="plan">Optimize all days</button></div><p class="travel">Drag a stop to another day · ✕ removes it. Other stops stay on their day until you press Optimize.</p>`;
+    if (!TRIP.places.length) {
+      return `<div class="empty"><p><b>No places yet.</b></p><p class="travel">Import links to posts you saved on Xiaohongshu, Instagram, YouTube, TikTok or travel blogs. The places in them become this trip's plan.</p><div class="bar"><button class="primary" data-act="import">+ Import a link</button></div></div>`;
+    }
+    let html = `<div class="bar"><button class="primary" data-act="import">+ Import link</button><button data-addday="0">+ Add saved places</button><button data-act="plan">Optimize all days</button></div><p class="travel">Drag a stop to another day · ✕ removes it. Other stops stay on their day until you press Optimize.</p>`;
     let n = 0;
     plan.days.forEach((d, di) => {
       const color = COLORS[di % COLORS.length];
@@ -360,7 +613,7 @@
     const list = TRIP.places
       .filter((p) => !q || [p.name, p.nameLocal, p.type, p.area].some((v) => v?.toLowerCase().includes(q)))
       .sort((a, b) => rank[state[a.key]] - rank[state[b.key]] || a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
-    let html = `<div class="bar"><button class="primary" data-act="plan">Optimize route</button><span class="count">${counts.must} must-go · ${counts.want} maybe · ${counts.skip} removed</span></div>`;
+    let html = `<div class="bar"><button class="primary" data-act="import">+ Import link</button><button data-act="plan">Optimize route</button><span class="count">${counts.must} must-go · ${counts.want} maybe · ${counts.skip} removed</span></div>`;
     html += `<p class="travel">★ = must go: planned first. Other places are added only when they're on the way. ✕ = not this trip.</p>`;
     html += `<input type="search" placeholder="Search places" value="${esc(query)}">`;
     for (const p of list) {
@@ -400,12 +653,12 @@
     for (const [i, r] of startResults.entries()) html += `<div class="pick" data-pick="${i}">${esc(r.display_name)}</div>`;
     html += `<div class="bar"><button data-act="pickmap" class="${pickingStart ? 'primary' : ''}">${pickingStart ? 'Now click the map…' : 'Or click the map'}</button></div>`;
     html += `<div class="bar"><button class="primary" data-act="plan">Optimize route</button></div>`;
-    html += `<h2>Start over</h2><p class="travel">Clears your stars, chosen days, removed places and these settings, back to trip.json.</p><div class="bar"><button data-act="reset">Reset this trip</button></div>`;
+    html += `<h2>Start over</h2><p class="travel">Clears your stars, chosen days and removed places in this browser. The trip's places and settings stay.</p><div class="bar"><button data-act="reset">Reset this trip</button></div>`;
     return html;
   }
 
   function render(fit = false) {
-    const head = `<h1>${esc(TRIP.city || 'Trip')} plan</h1><div class="sub">${plan.days.length} days from ${esc(settings.startDate)} · ${esc(MODE[settings.travelMode]?.[0] ?? settings.travelMode)} · from ${esc(settings.hotel.name)}</div>`;
+    const head = `<a class="back" href="./">← All trips</a><h1>${esc(tripName || TRIP.city || 'Trip')}</h1><div class="sub">${plan.days.length} days from ${esc(settings.startDate)} · ${esc(MODE[settings.travelMode]?.[0] ?? settings.travelMode)} · from ${esc(settings.hotel.name)}</div>`;
     const tabs = `<div class="tabs">${[['plan', 'Plan'], ['places', `Places (${TRIP.places.length})`], ['trip', 'Trip']].map(([k, t]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
     side.innerHTML = head + tabs + (tab === 'plan' ? planHtml() : tab === 'places' ? placesHtml() : tripHtml());
     drawMap(fit);
@@ -437,7 +690,7 @@
     const key = e.target.dataset?.set;
     if (!key) return;
     settings[key] = e.target.value;
-    save();
+    saveSettings();
   });
 
   // Address search with OpenStreetMap's free geocoder (no key); fine for a test, not for the real app.
@@ -455,7 +708,7 @@
     settings.hotel = { name, lat: Number(lat), lng: Number(lng) };
     startResults = [];
     pickingStart = false;
-    save();
+    saveSettings();
     render();
   }
 
@@ -479,8 +732,9 @@
     }
     if (t.dataset.tab) { tab = t.dataset.tab; render(); return; }
     if (t.dataset.act === 'plan') { locks = {}; save(); replan(); return; }
+    if (t.dataset.act === 'import') { openImport(); return; }
     if (t.dataset.act === 'reset') {
-      if (!confirm('Reset stars, chosen days, removed places and trip settings?')) return;
+      if (!confirm('Reset stars, chosen days and removed places for this trip?')) return;
       try { localStorage.removeItem(storeKey); } catch {}
       location.reload();
       return;
@@ -514,9 +768,8 @@
     }
   });
 
-  // Saved choices in this browser win over the plan that was printed on the command line.
-  if (saved) replan();
-  render(true);
+  replan();
+  if (params.get('new')) openImport(); // a trip just created on the home page starts with its first link
   window.addEventListener('load', () => drawMap(true));
   new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
 </script>

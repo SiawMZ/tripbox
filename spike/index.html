@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tripbox spike: trips</title>
+<style>
+  :root { --paper: #f2f0eb; --ink: #111; --quiet: #6b6863; --rule: #111; --red: #e3000f; --line: #d8d4cc; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; border-bottom: 2px solid var(--rule); padding-bottom: 12px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--quiet); }
+  h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin: 32px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .card { display: block; color: inherit; text-decoration: none; border: 2px solid var(--ink); background: #fbfaf7; }
+  .card:hover { border-color: var(--red); }
+  .card .cover { aspect-ratio: 16 / 10; background: var(--line) center / cover no-repeat; }
+  .card .body { padding: 12px; }
+  .card h3 { margin: 0 0 4px; font-size: 17px; }
+  .card .meta { color: var(--quiet); font-size: 13px; }
+  .new { border: 2px dashed var(--ink); padding: 16px; display: grid; gap: 12px; align-content: start; background: none; }
+  .new h3 { margin: 0; font-size: 17px; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--quiet); min-width: 0; }
+  .new > * { min-width: 0; }
+  input { padding: 8px; border: 2px solid var(--ink); background: #fff; font: 15px system-ui; width: 100%; }
+  .row { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+  button { font: 600 15px system-ui; padding: 10px; border: 0; background: var(--red); color: #fff; cursor: pointer; }
+  button:disabled { background: var(--line); color: var(--quiet); cursor: default; }
+  .error { color: var(--red); font-size: 13px; min-height: 1em; }
+  .empty { color: var(--quiet); }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Tripbox</h1><p>Save links, get a 顺路 plan.</p></header>
+  <h2>Your trips</h2>
+  <div class="grid" id="trips">
+    <form class="new" id="new" autocomplete="off">
+      <h3>+ New trip</h3>
+      <label>City<input name="city" required placeholder="e.g. Taipei, Penang, Tokyo"></label>
+      <label>Trip name (optional)<input name="name" placeholder="e.g. Taipei with Ah Boy"></label>
+      <div class="row">
+        <label>Start date<input name="startDate" type="date"></label>
+        <label>Days<input name="days" type="number" min="1" max="14" value="3"></label>
+      </div>
+      <button type="submit">Create trip</button>
+      <div class="error" id="err"></div>
+    </form>
+  </div>
+</main>
+<script type="module">
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const fmt = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const range = (start, days) => {
+    const end = new Date(`${start}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + days - 1);
+    return `${fmt(start)} – ${fmt(end.toISOString().slice(0, 10))} ${end.getUTCFullYear()}`;
+  };
+  const form = document.getElementById('new');
+  form.startDate.value = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+
+  try {
+    const trips = await (await fetch('/api/trips')).json();
+    const grid = document.getElementById('trips');
+    for (const t of trips) {
+      const a = document.createElement('a');
+      a.className = 'card';
+      a.href = `trip.html?trip=${encodeURIComponent(t.id)}`;
+      a.innerHTML = `<div class="cover"${t.cover ? ` style="background-image:url('${esc(t.cover)}')"` : ''}></div>
+        <div class="body"><h3>${esc(t.name)}</h3>
+        <div class="meta">${esc(t.city ?? '')} · ${range(t.startDate, t.days)} · ${t.days} day${t.days > 1 ? 's' : ''}</div>
+        <div class="meta">${t.places ? `${t.places} places saved` : 'No links yet'}</div></div>`;
+      grid.append(a);
+    }
+    if (!trips.length) grid.insertAdjacentHTML('beforeend', '<p class="empty">No trips yet. Create one, then add links from Xiaohongshu, Instagram or travel blogs.</p>');
+  } catch {
+    document.getElementById('err').textContent = 'The local server isn’t running. Start it with: deno task serve';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button');
+    const err = document.getElementById('err');
+    btn.disabled = true;
+    btn.textContent = 'Finding the city…';
+    err.textContent = '';
+    try {
+      const res = await fetch('/api/trips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error);
+      location.href = `trip.html?trip=${encodeURIComponent(out.id)}&new=1`;
+    } catch (x) {
+      err.textContent = x.message || 'Couldn’t create the trip.';
+      btn.disabled = false;
+      btn.textContent = 'Create trip';
+    }
+  });
+</script>
+</body>
+</html>
