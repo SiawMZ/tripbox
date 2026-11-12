@@ -16,6 +16,9 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
   .card { display: block; color: inherit; text-decoration: none; border: 2px solid var(--ink); background: #fbfaf7; }
   .card:hover { border-color: var(--red); }
+  .card { position: relative; }
+  .card .del { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0; font-size: 14px; background: #fbfaf7; color: var(--ink); border: 1px solid var(--ink); opacity: 0.85; }
+  .card .del:hover { background: var(--red); color: #fff; border-color: var(--red); opacity: 1; }
   .card .cover { aspect-ratio: 16 / 10; background: var(--line) center / cover no-repeat; }
   .card .body { padding: 12px; }
   .card h3 { margin: 0 0 4px; font-size: 17px; }
@@ -68,10 +71,19 @@
       const a = document.createElement('a');
       a.className = 'card';
       a.href = `trip.html?trip=${encodeURIComponent(t.id)}`;
-      a.innerHTML = `<div class="cover"${t.cover ? ` style="background-image:url('${esc(t.cover)}')"` : ''}></div>
+      a.innerHTML = `<button class="del" type="button" title="Delete this trip" aria-label="Delete ${esc(t.name)}">✕</button><div class="cover"${t.cover ? ` style="background-image:url('${esc(t.cover)}')"` : ''}></div>
         <div class="body"><h3>${esc(t.name)}</h3>
         <div class="meta">${esc(t.city ?? '')} · ${range(t.startDate, t.days)} · ${t.days} day${t.days > 1 ? 's' : ''}</div>
         <div class="meta">${t.places ? `${t.places} places saved` : 'No links yet'}</div></div>`;
+      a.querySelector('.del').addEventListener('click', async (e) => {
+        e.preventDefault();
+        const what = t.places ? ` and its ${t.places} saved place${t.places > 1 ? 's' : ''}` : '';
+        if (!confirm(`Delete “${t.name}”${what}? This can’t be undone.`)) return;
+        const res = await fetch(`/api/trips/${encodeURIComponent(t.id)}`, { method: 'DELETE' });
+        if (!res.ok) { alert('Couldn’t delete the trip.'); return; }
+        try { localStorage.removeItem(`tripbox:trip:${t.id}`); } catch {}
+        a.remove();
+      });
       grid.append(a);
     }
     if (!trips.length) grid.insertAdjacentHTML('beforeend', '<p class="empty">No trips yet. Create one, then add links from Xiaohongshu, Instagram or travel blogs.</p>');

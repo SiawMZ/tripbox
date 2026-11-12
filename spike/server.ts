@@ -57,6 +57,12 @@ async function api(req: Request, url: URL): Promise<Response> {
   if (!trip) return json({ error: 'trip not found' }, 404);
 
   if (!action && req.method === 'GET') return json(await tripPayload(id, trip));
+  if (!action && req.method === 'DELETE') {
+    // Removes the trip's folder (settings and places). Photos are shared by all trips and stay.
+    await Deno.remove(new URL(`${id}/`, tripsDir), { recursive: true });
+    for (const [k, v] of pending) if (v.tripId === id) pending.delete(k);
+    return json({ ok: true });
+  }
   if (!action && req.method === 'PATCH') {
     const body = await req.json();
     const allowed = ['name', 'startDate', 'days', 'dayStart', 'dayEnd', 'travelMode', 'maxMealsPerDay', 'maxPlacesPerDay', 'hotel'];

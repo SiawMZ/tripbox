@@ -37,6 +37,7 @@
   li.dragging { opacity: 0.4; }
   section.day { outline: 2px dashed transparent; outline-offset: 2px; }
   section.day.drop-on { outline-color: var(--red); background: #ece9e2; }
+  .bar button.danger { border-color: var(--red); color: var(--red); }
   .back { display: inline-block; font-size: 12px; color: var(--quiet); text-decoration: none; margin-bottom: 6px; }
   .back:hover { color: var(--ink); }
   #importer { position: fixed; inset: 0; z-index: 1001; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; }
@@ -654,6 +655,7 @@
     html += `<div class="bar"><button data-act="pickmap" class="${pickingStart ? 'primary' : ''}">${pickingStart ? 'Now click the map…' : 'Or click the map'}</button></div>`;
     html += `<div class="bar"><button class="primary" data-act="plan">Optimize route</button></div>`;
     html += `<h2>Start over</h2><p class="travel">Clears your stars, chosen days and removed places in this browser. The trip's places and settings stay.</p><div class="bar"><button data-act="reset">Reset this trip</button></div>`;
+    html += `<h2>Delete trip</h2><p class="travel">Deletes this trip and every place saved to it. This can't be undone.</p><div class="bar"><button data-act="delete" class="danger">Delete this trip</button></div>`;
     return html;
   }
 
@@ -733,6 +735,17 @@
     if (t.dataset.tab) { tab = t.dataset.tab; render(); return; }
     if (t.dataset.act === 'plan') { locks = {}; save(); replan(); return; }
     if (t.dataset.act === 'import') { openImport(); return; }
+    if (t.dataset.act === 'delete') {
+      const n = TRIP.places.length;
+      if (!confirm(`Delete “${tripName}”${n ? ` and its ${n} saved place${n > 1 ? 's' : ''}` : ''}? This can’t be undone.`)) return;
+      api('', { method: 'DELETE' })
+        .then(() => {
+          try { localStorage.removeItem(storeKey); } catch {}
+          location.href = './';
+        })
+        .catch((x) => toast(`Couldn’t delete the trip: ${x.message}`));
+      return;
+    }
     if (t.dataset.act === 'reset') {
       if (!confirm('Reset stars, chosen days and removed places for this trip?')) return;
       try { localStorage.removeItem(storeKey); } catch {}
