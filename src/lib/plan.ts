@@ -155,7 +155,7 @@ function current(trip: Trip, places: Place[]) {
  * Drag a stop (or a Maybe place) onto a day: it stays on that day from now on (also when re-planning), it is fitted
  * into that day and the day it came from just closes the gap. A booked time moves with the place. No Google call.
  */
-export async function moveToDay(trip: Trip, places: Place[], placeId: string, day: number) {
+export async function moveToDay(trip: Trip, places: Place[], placeId: string, day: number, index?: number) {
   const place = places.find((p) => p.id === placeId);
   if (!place) return;
   const { error } = await supabase.from('trip_places').update({ fixed_day: day, must: true }).eq('id', placeId);
@@ -166,8 +166,26 @@ export async function moveToDay(trip: Trip, places: Place[], placeId: string, da
   const target = input.places.find((p) => p.key === placeId);
   if (!target) return;
   const days = shown.days.map((d) => ({ ...d, stops: d.stops.filter((s) => s.key !== placeId) }));
-  days[day - 1] = fitDay(input, day, days[day - 1].stops, [target]);
+  // Dropped at a spot (drag): exactly there, the rest of the day keeps its order. Else fitted in.
+  const rest = days[day - 1].stops;
+  days[day - 1] =
+    index === undefined
+      ? fitDay(input, day, rest, [target])
+      : timeDay(input, day, [...rest.slice(0, index), target, ...rest.slice(index)]);
   await save(trip.id, toSaved(days, maybe.filter((m) => m.key !== placeId)));
+}
+
+/**
+ * "Off this day": the place goes back to Maybe but stays in the trip. Its chosen day and time are cleared, so
+ * "Plan my days" may put it on any day (or leave it out) again.
+ */
+export async function unplanPlace(trip: Trip, places: Place[], placeId: string) {
+  const { error } = await supabase.from('trip_places').update({ fixed_day: null, fixed_time: null }).eq('id', placeId);
+  if (error) throw error;
+  const next = places.map((p) => (p.id === placeId ? { ...p, fixed_day: null, fixed_time: null } : p));
+  const { shown, maybe } = current(trip, next);
+  const days = shown.days.map((d) => ({ ...d, stops: d.stops.filter((s) => s.key !== placeId) }));
+  await save(trip.id, toSaved(days, [...maybe.filter((m) => m.key !== placeId), { key: placeId, reason: 'Taken off its day' }]));
 }
 
 /** ✕ on a stop: off this trip (the Places tab can add it back); the rest of its day closes the gap. */

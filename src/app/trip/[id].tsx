@@ -12,7 +12,7 @@ import { PlanSettings, StartPoint } from '@/components/trip-settings';
 import { Button, Check, Field, Rule, ScreenHeader, SectionLabel, Sheet, T } from '@/components/ui';
 import { confirm } from '@/lib/confirm';
 import { dateRange, isIsoDate } from '@/lib/dates';
-import { addToDay, moveToDay, optimize, removeFromPlan, shownPlan, startPoint } from '@/lib/plan';
+import { addToDay, moveToDay, optimize, removeFromPlan, shownPlan, startPoint, unplanPlace } from '@/lib/plan';
 import { useStore } from '@/lib/store';
 import { dayColor, space, type as typeScale, useColors, useIsWide } from '@/lib/theme';
 import type { Place, Trip } from '@/lib/types';
@@ -135,7 +135,8 @@ export default function TripScreen() {
               'Planned with each place’s opening hours.',
             )
           }
-          onMove={(placeId, day) => void run(() => moveToDay(trip, places, placeId, day))}
+          onMove={(placeId, day, index) => void run(() => moveToDay(trip, places, placeId, day, index))}
+          onUnplan={(placeId) => void run(() => unplanPlace(trip, places, placeId), 'Moved to Maybe. It stays in the trip.')}
           onRemove={(placeId) => void run(() => removeFromPlan(trip, places, placeId), 'Removed. Add it back from Places.')}
           onAdd={setAdding}
         />
