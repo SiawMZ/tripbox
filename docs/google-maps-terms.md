@@ -36,6 +36,14 @@ City centres come from OpenStreetMap (Nominatim), whose data may be stored (ODbL
 | Maps SDK (Android) | unlimited | free |
 | Dynamic Maps (web) | 10,000 loads | 7 |
 
-What Tripbox calls: import = 1 free ID search (cached) + 1 Essentials + 1 Photo per place found; opening a trip's
-list = 1 Essentials + 1 Photo per place shown; planning = 1 Enterprise per place that needs hours. Each call is
+Photos: Tripbox shows no Google photos (2026-11-13). Each place shows the cover picture of the post it came from,
+copied into Tripbox's own storage at import, with a link back to the post. Google photos (with the credit rules above)
+are kept for places searched in the app, if that comes later.
+
+What Tripbox calls: import = 1 free ID search (cached) + 1 Essentials per place found (address for the review,
+coordinates); opening a trip = no Google call (an Essentials only when a place's coordinates are older than 25 days); planning ("Plan my days") = 1 Enterprise per active place, once per
+visit (hours are kept in memory until the app restarts); dragging or adding a place to a day = no call. The trip map:
+free on Android; on the web 1 Dynamic Maps load each time a trip screen opens. Only each place's day and order are
+saved; times are worked out again when shown (from opening hours only if they're in memory), so nothing derived from
+Google's hours is stored. The free allowances are per billing account, i.e. shared by all Tripbox users. Each call is
 logged in `trip_usage` and limited per person per day (`TRIPBOX_DETAILS_PER_DAY`).

@@ -2,6 +2,7 @@
 // POST with the user's Authorization header:
 //   { action: 'import', trip_id, url?, text? }  -> one JSON line per step, the last with the places found
 //   { action: 'add', link_id, picks: number[] } -> saves the picked places to the trip
+//   { action: 'find_start', trip_id, query }     -> up to 5 OpenStreetMap results for a hotel or address
 //   { action: 'details', trip_id, place_ids, want: ('address'|'photo'|'hours')[] }
 //                                               -> live Google details for places of the trip (never stored)
 //   { action: 'locate', trip_id }               -> sets a new trip's start point to its city centre
@@ -13,7 +14,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@0.134';
 
 import { extractPlaces, usageCost } from './extract.ts';
 import { basics, findPlaceId, hours, mapsUrl, photoUri, type Basics, type OpeningPeriod } from './places.ts';
-import { readPost, type Post } from './post.ts';
+import { downloadImageBytes, readPost, type Post } from './post.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -27,6 +28,10 @@ const IMPORTS_PER_DAY = Number(Deno.env.get('TRIPBOX_IMPORTS_PER_DAY') ?? 150);
 const IMPORTS_PER_DAY_ALL = Number(Deno.env.get('TRIPBOX_IMPORTS_PER_DAY_ALL') ?? 2000);
 const DETAILS_PER_DAY = Number(Deno.env.get('TRIPBOX_DETAILS_PER_DAY') ?? 1500); // Google calls per person
 const DETAILS_PER_DAY_ALL = Number(Deno.env.get('TRIPBOX_DETAILS_PER_DAY_ALL') ?? 20000);
+// Opening hours are Google's priciest call (Place Details Enterprise: 1,000 free a month for the whole billing
+// account, then US$20 per 1,000). Counted per calendar month (UTC), so one person can't use up everyone's allowance.
+const HOURS_PER_MONTH = Number(Deno.env.get('TRIPBOX_HOURS_PER_MONTH') ?? 300); // per person, about 7 plans of 40 places
+const HOURS_PER_MONTH_ALL = Number(Deno.env.get('TRIPBOX_HOURS_PER_MONTH_ALL') ?? 950); // everyone: stays in the free 1,000
 const MAX_PLACES = 25; // places per import
 const MAX_DETAILS = 60; // places per details call
 const MAX_KM = 50; // a match farther than this from the start point is another place with the same name
@@ -78,6 +83,7 @@ Deno.serve(async (req) => {
     if (body.action === 'add') return await addPicked(userDb, adminDb, userId, body);
     if (body.action === 'details') return await details(userDb, adminDb, userId, body);
     if (body.action === 'locate') return json(await locate(userDb, adminDb, userId, String(body.trip_id ?? '')));
+    if (body.action === 'find_start') return await findStart(userDb, adminDb, userId, body);
     return json({ error: 'unknown action' }, 400);
   } catch (e) {
     console.error('tripbox-import failed', e instanceof Error ? e.message : String(e));
@@ -146,12 +152,10 @@ async function importLink(
         for (const [i, p] of places.entries()) {
           const query = [p.name_local || p.name, p.area, found.city || trip.city].filter(Boolean).join(' ');
           const placeId = await cachedPlaceId(adminDb, query);
-          // Address and photo for the review, and fresh coordinates (Essentials), plus one photo image.
+          // Address for the review and fresh coordinates (Essentials). No Google photo: places show the post's cover.
           const got = placeId ? await basics(placeId, googleKey) : null;
           if (placeId) usage.places_calls++;
           if (got) await cacheCoords(adminDb, query, got);
-          const uri = got?.photoName ? await photoUri(got.photoName, googleKey).catch(() => null) : null;
-          if (got?.photoName) usage.photo_calls++;
           candidates.push({
             name: p.name.slice(0, 300),
             name_local: p.name_local.slice(0, 300),
@@ -164,7 +168,7 @@ async function importLink(
             km_away: got && start.lat != null ? Math.round(km(got, start as { lat: number; lng: number })) : null,
             already: !!placeId && existing.has(placeId),
           });
-          live.push({ address: got?.address, photo_uri: uri, photo_credit: got?.photoCredit, photo_credit_uri: got?.photoCreditUri });
+          live.push({ address: got?.address });
           send({ step: 'details', done: i + 1, total: places.length });
         }
 
@@ -175,7 +179,7 @@ async function importLink(
             platform: post.platform.slice(0, 20),
             title: post.title?.slice(0, 500) ?? null,
             author: post.author?.slice(0, 200) ?? null,
-            cover_url: post.images[0]?.slice(0, 2000) ?? null,
+            cover_path: post.images[0] ? await saveCover(adminDb, tripId, linkId, post.images[0]) : null,
             candidates,
           })
           .eq('id', linkId);
@@ -198,6 +202,23 @@ async function importLink(
     },
   });
   return new Response(stream, { headers: { ...CORS, 'Content-Type': 'application/x-ndjson' } });
+}
+
+/**
+ * Copies the post's first picture into the private trip-covers bucket (post image links expire and refuse other
+ * sites). Each place from the post shows it, with a link back to the post. Null if it can't be fetched.
+ */
+async function saveCover(adminDb: SupabaseClient, tripId: string, linkId: string, imageUrl: string) {
+  const img = await downloadImageBytes(imageUrl);
+  if (!img) return null;
+  const ext = img.type.split('/')[1].replace('jpeg', 'jpg');
+  const path = `${tripId}/${linkId}.${ext}`;
+  const { error } = await adminDb.storage.from('trip-covers').upload(path, img.bytes, { contentType: img.type, upsert: true });
+  if (error) {
+    console.error('cover upload failed', error.message);
+    return null;
+  }
+  return path;
 }
 
 // ---------- add: the member picked which places to keep ----------
@@ -258,7 +279,9 @@ async function details(userDb: SupabaseClient, adminDb: SupabaseClient, userId: 
     .in('google_place_id', asked);
   if (error) throw error;
   if (!rows.length) return json({ places: {} }); // not a member, or no such places: nothing to fetch or log
-  const limited = await detailsLimited(adminDb, userId, rows.length * (want.size + 1));
+  const limited =
+    (await detailsLimited(adminDb, userId, rows.length * (want.size + 1))) ??
+    (want.has('hours') ? await hoursLimited(adminDb, userId, rows.length) : null);
   if (limited) {
     await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'details', outcome: 'rate_limited', detail: limited });
     return json({ error: limited }, 429);
@@ -339,6 +362,48 @@ async function locate(userDb: SupabaseClient, adminDb: SupabaseClient, userId: s
   return { hotel };
 }
 
+// ---------- find_start: search a hotel or address to start each day from ----------
+
+const SEARCHES_PER_HOUR = 60;
+
+/** OpenStreetMap search near the trip's city (stored freely, like the city centre above). The app saves the pick. */
+async function findStart(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, body: { trip_id?: string; query?: string }) {
+  const tripId = String(body.trip_id ?? '');
+  const query = String(body.query ?? '').trim().slice(0, 200);
+  if (query.length < 2) return json({ results: [] });
+  const trip = await memberTrip(userDb, tripId);
+  if (!trip) return json({ error: 'trip not found' }, 404);
+  if ((await countUsage(adminDb, 'locate', 3_600_000, userId)) >= SEARCHES_PER_HOUR) {
+    return json({ error: 'Too many searches this hour. Try again later.' }, 429);
+  }
+  const search = async (q: string) => {
+    const params = new URLSearchParams({ q, format: 'jsonv2', limit: '5', addressdetails: '0' });
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+      headers: { 'User-Agent': 'Tripbox/0.1 (+https://github.com/SiawMZ/tripbox)', 'Accept-Language': 'en' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`nominatim ${res.status}`);
+    return (await res.json()) as { display_name: string; name?: string; lat: string; lon: string }[];
+  };
+  let found: Awaited<ReturnType<typeof search>> = [];
+  try {
+    // Near the trip's city first ("Hotel Jen" is in many cities); then anywhere.
+    found = await search(`${query}, ${trip.city}`);
+    if (!found.length) found = await search(query);
+  } catch (e) {
+    console.error('nominatim failed', e instanceof Error ? e.message : e);
+  }
+  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: found.length ? 'ok' : 'failed' });
+  return json({
+    results: found.map((r) => ({
+      name: (r.name || r.display_name.split(',')[0]).slice(0, 120),
+      address: r.display_name.slice(0, 300),
+      lat: Number(r.lat),
+      lng: Number(r.lon),
+    })),
+  });
+}
+
 // ---------- helpers ----------
 
 class UserError extends Error {}
@@ -382,6 +447,28 @@ async function detailsLimited(adminDb: SupabaseClient, userId: string, upcoming:
   ]);
   if (mine + upcoming > DETAILS_PER_DAY) return 'You’ve viewed a lot of place details today. Photos and opening hours are back tomorrow.';
   if (all + upcoming > DETAILS_PER_DAY_ALL) return 'Tripbox has reached today’s limit for place details. Please try again tomorrow.';
+  return null;
+}
+
+/** Opening-hours calls this calendar month (UTC), for one person or everyone. */
+async function hoursThisMonth(adminDb: SupabaseClient, userId?: string) {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  let q = adminDb.from('trip_usage').select('hours_calls').eq('kind', 'details').gt('hours_calls', 0).gte('created_at', monthStart);
+  if (userId) q = q.eq('user_id', userId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data as { hours_calls: number }[]).reduce((n, r) => n + r.hours_calls, 0);
+}
+
+async function hoursLimited(adminDb: SupabaseClient, userId: string, upcoming: number): Promise<string | null> {
+  const [mine, all] = await Promise.all([hoursThisMonth(adminDb, userId), hoursThisMonth(adminDb)]);
+  if (mine + upcoming > HOURS_PER_MONTH) {
+    return `Planning checks each place’s opening hours, and you’ve used this month’s ${HOURS_PER_MONTH} checks. You can still drag places between days; planning with opening hours is back on the 1st.`;
+  }
+  if (all + upcoming > HOURS_PER_MONTH_ALL) {
+    return 'Tripbox has used this month’s opening-hours checks for everyone. You can still drag places between days; planning with opening hours is back on the 1st.';
+  }
   return null;
 }
 

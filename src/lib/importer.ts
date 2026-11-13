@@ -128,3 +128,11 @@ export async function rateImport(linkId: string, rating: 'good' | 'bad') {
   const { error } = await supabase.from('trip_links').update({ rating }).eq('id', linkId);
   if (error) throw error;
 }
+
+export type StartResult = { name: string; address: string; lat: number; lng: number };
+
+/** Searches a hotel or address (OpenStreetMap) to start each day from. */
+export async function findStart(tripId: string, query: string) {
+  const out = await call<{ results: StartResult[] }>({ action: 'find_start', trip_id: tripId, query });
+  return out.results;
+}

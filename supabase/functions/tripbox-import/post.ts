@@ -97,6 +97,12 @@ async function fetchOEmbed(platform: Platform, url: string) {
 
 /** Downloads an image for the AI. Returns null for non-raster or oversized images. */
 export async function downloadImage(url: string): Promise<{ type: ImageType; base64: string } | null> {
+  const got = await downloadImageBytes(url);
+  return got ? { type: got.type, base64: toBase64(got.bytes) } : null;
+}
+
+/** Downloads a raster image (safe fetching, 5 MB cap). Null if it isn't one or can't be fetched. */
+export async function downloadImageBytes(url: string): Promise<{ type: ImageType; bytes: Uint8Array } | null> {
   try {
     const { res } = await safeFetch(url, {
       headers: { 'User-Agent': BROWSER_UA },
@@ -109,7 +115,7 @@ export async function downloadImage(url: string): Promise<{ type: ImageType; bas
     }
     const { bytes, truncated } = await readBytes(res, MAX_IMAGE_BYTES);
     if (truncated) return null;
-    return { type: type as ImageType, base64: toBase64(bytes) };
+    return { type: type as ImageType, bytes };
   } catch {
     return null;
   }

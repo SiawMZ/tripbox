@@ -16,6 +16,8 @@ export type Trip = {
   hotel_name: string | null;
   hotel_lat: number | null;
   hotel_lng: number | null;
+  /** When the trip was last optimized; null = never. */
+  planned_at: string | null;
   created_at: string;
   updated_at: string;
   /** Places saved to the trip and not removed (from a count query). */
@@ -69,5 +71,23 @@ export type Place = {
   note: string | null;
   duration_min: number | null;
   removed: boolean;
+  /** The saved plan (ours, see trip_save_plan): day and order within the day. No day = Maybe. Times aren't saved. */
+  plan_day: number | null;
+  plan_pos: number | null;
+  plan_reason: string | null;
   created_at: string;
+};
+
+/** The place fields members may change (the database grants update on these and the plan columns). */
+export type PlacePatch = Partial<Pick<Place, 'must' | 'fixed_day' | 'fixed_time' | 'note' | 'duration_min' | 'removed'>>;
+
+/** An imported post (public.trip_links), as places show it: its cover (in the trip-covers bucket) and a link back. */
+export type TripLink = {
+  id: string;
+  trip_id: string;
+  url: string | null;
+  platform: string | null;
+  title: string | null;
+  author: string | null;
+  cover_path: string | null;
 };

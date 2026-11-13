@@ -3,7 +3,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, 
 
 import { locateTrip } from './importer';
 import { supabase } from './supabase';
-import type { NewTrip, Place, Trip, TripPatch } from './types';
+import type { NewTrip, Place, PlacePatch, Trip, TripLink, TripPatch } from './types';
 
 type Store = {
   session: Session | null;
@@ -15,9 +15,13 @@ type Store = {
   updateTrip: (id: string, patch: TripPatch) => Promise<void>;
   /** Owner only: deletes the trip with its links and places. */
   deleteTrip: (id: string) => Promise<void>;
-  /** Places saved to each trip (not removed), loaded per trip when it's opened. */
+  /** Places saved to each trip (removed ones too, so they can be added back), loaded when the trip is opened. */
   places: Record<string, Place[]>;
-  loadPlaces: (tripId: string) => Promise<void>;
+  loadPlaces: (tripId: string) => Promise<Place[]>;
+  /** The posts each trip's places came from (cover and link back), loaded with the places. */
+  links: Record<string, TripLink[]>;
+  /** Star, choose a day or time, remove or add back a place (the planning fields members may change). */
+  updatePlace: (tripId: string, placeId: string, patch: PlacePatch) => Promise<void>;
   /** Deletes every trip I own. The login stays: it is shared with Linkbox. */
   deleteMyTrips: () => Promise<number>;
   /** My display name, shown to people in trips I share (shared with Linkbox's profiles). */
@@ -49,6 +53,18 @@ function sortTrips(trips: Trip[]) {
   });
 }
 
+/**
+ * Deletes the post covers of these trips from storage. Deleting a trip cascades through its rows but can't reach
+ * storage, so this runs first. Only the owner deletes trips, and members may delete their trip's covers.
+ */
+async function removeCovers(tripIds: string[]) {
+  for (const id of tripIds) {
+    const bucket = supabase.storage.from('trip-covers');
+    const { data } = await bucket.list(id, { limit: 1000 });
+    if (data?.length) await bucket.remove(data.map((f) => `${id}/${f.name}`));
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -56,6 +72,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [displayName, setDisplayNameState] = useState<string | null>(null);
   const [places, setPlaces] = useState<Record<string, Place[]>>({});
+  const [links, setLinks] = useState<Record<string, TripLink[]>>({});
   const userId = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -87,6 +104,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       userId.current = id;
       setTrips([]);
       setPlaces({});
+      setLinks({});
       // Supabase calls inside this callback can deadlock the auth lock, so defer.
       if (id) setTimeout(() => void refresh().catch(() => {}), 0);
     });
@@ -119,6 +137,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const deleteTrip = useCallback(async (id: string) => {
     // RLS lets only the owner delete; a member's delete matches no row, so check that it happened.
+    await removeCovers([id]);
     const { data, error } = await supabase.from('trips').delete().eq('id', id).select('id');
     if (error) throw error;
     if (!data?.length) throw new Error('Only the person who created this trip can delete it.');
@@ -126,21 +145,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadPlaces = useCallback(async (tripId: string) => {
-    const { data, error } = await supabase
-      .from('trip_places')
-      .select('*')
-      .eq('trip_id', tripId)
-      .eq('removed', false)
-      .order('created_at', { ascending: false });
+    const [{ data, error }, linkRows] = await Promise.all([
+      supabase.from('trip_places').select('*').eq('trip_id', tripId).order('created_at', { ascending: false }),
+      supabase.from('trip_links').select('id, trip_id, url, platform, title, author, cover_path').eq('trip_id', tripId),
+    ]);
     if (error) throw error;
+    if (linkRows.data) setLinks((prev) => ({ ...prev, [tripId]: linkRows.data as TripLink[] }));
     const rows = data as Place[];
     setPlaces((prev) => ({ ...prev, [tripId]: rows }));
-    setTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, place_count: rows.length } : t)));
+    setTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, place_count: rows.filter((p) => !p.removed).length } : t)));
+    return rows;
+  }, []);
+
+  const updatePlace = useCallback(async (tripId: string, placeId: string, patch: PlacePatch) => {
+    const { error } = await supabase.from('trip_places').update(patch).eq('id', placeId);
+    if (error) throw error;
+    setPlaces((prev) => ({ ...prev, [tripId]: (prev[tripId] ?? []).map((p) => (p.id === placeId ? { ...p, ...patch } : p)) }));
   }, []);
 
   const deleteMyTrips = useCallback(async () => {
     const me = userId.current;
     if (!me) return 0;
+    const { data: owned } = await supabase.from('trips').select('id').eq('owner_id', me);
+    await removeCovers((owned ?? []).map((t) => t.id as string));
     const { data, error } = await supabase.from('trips').delete().eq('owner_id', me).select('id');
     if (error) throw error;
     await refresh();
@@ -167,11 +194,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteTrip,
       places,
       loadPlaces,
+      links,
+      updatePlace,
       deleteMyTrips,
       displayName,
       setDisplayName,
     }),
-    [session, authReady, trips, loading, refresh, createTrip, updateTrip, deleteTrip, places, loadPlaces, deleteMyTrips, displayName, setDisplayName],
+    [session, authReady, trips, loading, refresh, createTrip, updateTrip, deleteTrip, places, loadPlaces, links, updatePlace, deleteMyTrips, displayName, setDisplayName],
   );
 
   return <StoreContext value={value}>{children}</StoreContext>;

@@ -6,7 +6,7 @@ tables (`links`, `folders`, `folder_members`, `profiles` except the user's own d
 storage `thumbnails`).
 
 Run the database checks with `npx supabase db reset` then `npx supabase test db`
-(`supabase/tests/database/trips_rls.test.sql`: two users, a signed-out visitor and the service role; 54 checks).
+(`supabase/tests/database/trips_rls.test.sql`: two users, a signed-out visitor and the service role; 65 checks).
 Add a check there with every new table, policy or RPC.
 
 ## Review of step 1 (2026-11-12)
@@ -57,6 +57,32 @@ How `supabase/functions/tripbox-import` meets the requirements below:
   a member of. The photo bucket and the `<trip_id>/` photo rule went with it.
 - 10: `trips_rls.test.sql` checks that users can't read or write `trip_usage` or `trip_place_cache`, can't run the
   coordinate clean-up, and that coordinates older than 30 days are deleted (60 checks).
+
+## Step 3 notes (2026-11-13): plan and map
+
+- The plan is saved on each place (`plan_day`, `plan_pos`, `plan_reason`; `20261113120000_trip_plan.sql`). Times are
+  not saved, because they come partly from Google's opening hours; the app works them out when it shows the plan.
+  Members change them only through column grants or `trip_save_plan(trip, stops)`, which is **security invoker**:
+  RLS decides, so a non-member's call updates nothing (checked by the test). It takes at most 500 places.
+- Opening hours are fetched with the `details` action (`want: ['hours']`) only for "Plan my days", for every active
+  place of the trip not already in memory; kept in memory, never stored. Dragging or adding a place to a day makes no
+  Google call (it goes where it adds the least travel).
+- Opening-hours checks are limited per calendar month: 300 per person and 950 for everyone (inside Google's free
+  1,000), env `TRIPBOX_HOURS_PER_MONTH` / `TRIPBOX_HOURS_PER_MONTH_ALL`. Over the limit "Plan my days" returns 429
+  with a readable message; dragging still works.
+- `find_start` searches OpenStreetMap for a start point: query ≤ 200 characters, members only, 60 searches an hour
+  per person (logged as `locate` in `trip_usage`).
+- Map keys are public by design (they ship in the web bundle and the APK), so they must be restricted in Google
+  Cloud: the web key to Maps JavaScript API and the Tripbox web address; the Android key to Maps SDK for Android
+  and the app's package and signing SHA-1. Neither may be the server's Places key (`GOOGLE_MAPS_API_KEY`).
+- Post covers: the import copies the post's first picture (through `safeFetch`, images only, 5 MB) into the private
+  `trip-covers` bucket at `<trip_id>/<link_id>.<ext>`; `trip_links.cover_path` must start with the trip id. Members
+  read covers through signed URLs (1 hour) and may delete them (`trip_cover_member`, which rejects malformed folder
+  names); only the service role uploads. The app deletes a trip's covers before deleting the trip ("Delete trip" and
+  "Delete my trips"). Not covered yet: deleting the account in Linkbox cascades the trips but leaves their covers;
+  Linkbox's `delete-account` function should also empty the person's `trip-covers` folders (or a clean-up job).
+- The web map builds its popups as HTML from place names (which come from posts): names are escaped (`esc` in
+  `trip-map.web.tsx`).
 
 ## Requirements for step 2 (import function)
 

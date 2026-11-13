@@ -6,7 +6,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(60);
+select plan(72);
 
 -- ---------- fixtures (as postgres) ----------
 insert into auth.users (id, aud, role, email, instance_id) values
@@ -126,6 +126,13 @@ select throws_ok($$ update trip_places set lat = 0 $$, '42501', null, 'A cannot 
 select throws_ok($$ update trip_places set trip_id = (select id from ids where name = 'trip_b') $$,
   '42501', null, 'A cannot move a place to another trip');
 select throws_ok($$ update trip_links set url = 'https://evil.example' $$, '42501', null, 'A cannot rewrite a link');
+select is(
+  public.trip_save_plan((select id from ids where name = 'trip'),
+    jsonb_build_array(jsonb_build_object('id', (select id from trip_places limit 1), 'day', 1, 'pos', 0))),
+  1, 'A saves the plan'
+);
+select is((select plan_day from trip_places limit 1), 1, 'the place is on day 1');
+select isnt((select planned_at from trips where id = (select id from ids where name = 'trip')), null, 'the trip remembers when it was planned');
 
 -- ---------- stranger B ----------
 reset role;
@@ -141,6 +148,13 @@ select results_eq(
 select results_eq(
   $$ with u as (update trip_places set note = 'hacked' where trip_id = (select id from ids where name = 'trip') returning 1) select count(*)::int from u $$,
   array[0], 'B cannot plan A''s places'
+);
+select is(
+  public.trip_save_plan((select id from ids where name = 'trip'), '[]'::jsonb), 0, 'B cannot save a plan for A''s trip'
+);
+select throws_ok(
+  $$ select public.trip_save_plan((select id from ids where name = 'trip_b'), '{"id": 1}'::jsonb) $$,
+  '22023', null, 'a plan must be a list of places'
 );
 select results_eq(
   $$ with d as (delete from trips where id = (select id from ids where name = 'trip') returning 1) select count(*)::int from d $$,
@@ -235,6 +249,41 @@ insert into trip_places (trip_id, google_place_id, name, lat, lng, coords_fetche
 select public.trip_expire_google_coords();
 select is((select lat from trip_places where google_place_id = 'old'), null, 'coordinates older than 30 days are deleted');
 select is((select lat from trip_places where google_place_id = 'new'), 5::float8, 'recent coordinates are kept');
+
+-- ---------- step 3: post covers in the private trip-covers bucket (B owns trip_b, A is a stranger) ----------
+-- The Storage API sets storage.allow_delete_query for its own deletes; set it here to test the delete policy.
+reset role;
+set local storage.allow_delete_query = 'true';
+insert into storage.objects (bucket_id, name) values
+  ('trip-covers', (select id from ids where name = 'trip_b')::text || '/cover-b.jpg'),
+  ('trip-covers', 'not-a-trip/evil.jpg');
+select throws_ok(
+  $$ insert into trip_links (trip_id, cover_path) values ((select id from ids where name = 'trip_b'), 'elsewhere/x.jpg') $$,
+  '23514', null, 'a cover must be in its own trip''s folder'
+);
+select pg_temp.as_user('bbbbbbbb-0000-4000-8000-000000000002');
+select is((select count(*)::int from storage.objects where bucket_id = 'trip-covers'), 1, 'B sees only the covers of their trips');
+select throws_ok(
+  $$ insert into storage.objects (bucket_id, name) values ('trip-covers', (select id from ids where name = 'trip_b')::text || '/mine.jpg') $$,
+  '42501', null, 'members cannot upload covers (only the import function)'
+);
+reset role;
+select pg_temp.as_user('aaaaaaaa-0000-4000-8000-000000000001');
+select is((select count(*)::int from storage.objects where bucket_id = 'trip-covers'), 0, 'A cannot see the covers of B''s trip');
+select results_eq(
+  $$ with d as (delete from storage.objects where bucket_id = 'trip-covers' returning 1) select count(*)::int from d $$,
+  array[0], 'A cannot delete B''s covers'
+);
+reset role;
+select pg_temp.as_anon();
+select is((select count(*)::int from storage.objects where bucket_id = 'trip-covers'), 0, 'signed-out visitors see no covers');
+reset role;
+select pg_temp.as_user('bbbbbbbb-0000-4000-8000-000000000002');
+select results_eq(
+  $$ with d as (delete from storage.objects where bucket_id = 'trip-covers' returning 1) select count(*)::int from d $$,
+  array[1], 'B can delete their trip''s covers (before deleting the trip)'
+);
+reset role;
 
 select * from finish();
 rollback;

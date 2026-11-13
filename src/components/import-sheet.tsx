@@ -248,7 +248,6 @@ function Source({ source }: { source: ImportSource }) {
 }
 
 function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: number; checked: boolean; onToggle: () => void }) {
-  const colors = useColors();
   const found = !!c.place_id;
   const note = !found
     ? 'Not found on the map'
@@ -268,10 +267,6 @@ function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: nu
       accessibilityState={{ checked, disabled: !found }}
       accessibilityLabel={c.name || c.name_local}
       style={styles.candidate}>
-      <View style={{ gap: 2 }}>
-        {c.photo_uri ? <Image source={{ uri: c.photo_uri }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: colors.surface }]} />}
-        {c.photo_credit ? <PhotoCredit name={c.photo_credit} uri={c.photo_credit_uri} /> : null}
-      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <T variant="bodyStrong" numberOfLines={1}>
           {c.name || c.name_local}
@@ -286,13 +281,21 @@ function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: nu
             {note}
           </T>
         ) : null}
+        {c.maps_url ? (
+          <T variant="small" tone="accent" onPress={() => void Linking.openURL(c.maps_url!)} accessibilityRole="link">
+            Check on Google Maps ↗
+          </T>
+        ) : null}
       </View>
       <Check checked={checked} />
     </Pressable>
   );
 }
 
-/** Google asks for the photographer's name with each Google photo, linked to their profile when there is one. */
+/**
+ * Google asks for the photographer's name with each Google photo, linked to their profile when there is one.
+ * Unused while places show their post's cover; kept for Google photos of places searched in the app (later).
+ */
 export function PhotoCredit({ name, uri }: { name: string; uri?: string }) {
   return (
     <T
@@ -307,11 +310,11 @@ export function PhotoCredit({ name, uri }: { name: string; uri?: string }) {
   );
 }
 
-/** "Google Maps" next to content from Google (address, photos), as Google's attribution rules ask. */
+/** "Google Maps" next to content from Google (addresses, place locations), as Google's attribution rules ask. */
 export function GoogleMapsCredit() {
   return (
     <T variant="small" tone="muted" style={{ fontSize: 12 }}>
-      Places and photos: Google Maps
+      Place data: Google Maps
     </T>
   );
 }
@@ -324,5 +327,4 @@ const styles = StyleSheet.create({
   source: { flexDirection: 'row', gap: space.md, alignItems: 'center' },
   cover: { width: 64, height: 64 },
   candidate: { flexDirection: 'row', gap: space.md, alignItems: 'center', paddingVertical: space.xs },
-  thumb: { width: 56, height: 56 },
 });
