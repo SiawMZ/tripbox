@@ -40,7 +40,10 @@ const TEXT_LIMIT = 3000;
 const MAX_LINKS_PER_TRIP = 300;
 const MAX_PLACES_PER_TRIP = 500;
 
-const anthropic = new Anthropic();
+// Tripbox's own Anthropic key: the hosted project is shared with Linkbox, whose functions use ANTHROPIC_API_KEY.
+// Falls back to that name for the local stack (supabase/functions/.env).
+const anthropicKey = Deno.env.get('TRIPBOX_ANTHROPIC_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY') ?? '';
+const anthropic = new Anthropic({ apiKey: anthropicKey });
 const googleKey = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
 
 /** Stored on the link while it waits for review: our data, place IDs and coordinates only. */
@@ -67,7 +70,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const auth = req.headers.get('Authorization');
   if (!auth) return json({ error: 'missing authorization' }, 401);
-  if (!googleKey || !Deno.env.get('ANTHROPIC_API_KEY')) return json({ error: 'Import is not set up on the server.' }, 503);
+  if (!googleKey || !anthropicKey) return json({ error: 'Import is not set up on the server.' }, 503);
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   // The user's client goes through RLS, so a user only reaches trips they are a member of.
