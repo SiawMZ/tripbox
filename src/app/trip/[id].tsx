@@ -3,11 +3,11 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { ImportSheet } from '@/components/import-sheet';
+import { GoogleMapsCredit, ImportSheet, PhotoCredit } from '@/components/import-sheet';
 import { Button, Field, ScreenHeader, SectionLabel, T } from '@/components/ui';
 import { confirm } from '@/lib/confirm';
 import { dateRange, isIsoDate } from '@/lib/dates';
-import { photoUrl } from '@/lib/importer';
+import { fetchDetails, type LiveDetails } from '@/lib/importer';
 import { useStore } from '@/lib/store';
 import type { Place, Trip } from '@/lib/types';
 import { space, useColors } from '@/lib/theme';
@@ -49,7 +49,7 @@ export default function TripScreen() {
         </T>
       </View>
       {note ? <T tone="muted">{note}</T> : null}
-      <PlaceList places={places[trip.id]} />
+      <PlaceList tripId={trip.id} places={places[trip.id]} />
       <ImportSheet
         tripId={trip.id}
         visible={importing}
@@ -74,8 +74,26 @@ export default function TripScreen() {
   );
 }
 
-function PlaceList({ places }: { places: Place[] | undefined }) {
+/**
+ * The trip's places. Photos are Google's, so they are fetched live for the places shown (one Google call each)
+ * and kept only in memory for this visit, never stored (docs/google-maps-terms.md).
+ */
+function PlaceList({ tripId, places }: { tripId: string; places: Place[] | undefined }) {
   const c = useColors();
+  const [live, setLive] = useState<Record<string, LiveDetails>>({});
+  const ids = (places ?? []).map((p) => p.google_place_id).join(',');
+
+  useEffect(() => {
+    if (!ids) return;
+    let alive = true;
+    void fetchDetails(tripId, ids.split(','), ['photo'])
+      .then((got) => alive && setLive((prev) => ({ ...prev, ...got })))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [tripId, ids]);
+
   if (!places) return <T tone="muted">Loading places…</T>;
   if (!places.length) {
     return (
@@ -88,7 +106,7 @@ function PlaceList({ places }: { places: Place[] | undefined }) {
   return (
     <View style={{ gap: space.sm }}>
       {places.map((p) => {
-        const photo = photoUrl(p.photo_path);
+        const d = live[p.google_place_id];
         return (
           <Pressable
             key={p.id}
@@ -96,7 +114,14 @@ function PlaceList({ places }: { places: Place[] | undefined }) {
             accessibilityRole="link"
             accessibilityLabel={`${p.name}, open in Google Maps`}
             style={styles.place}>
-            {photo ? <Image source={{ uri: photo }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: c.surface }]} />}
+            <View style={{ gap: 2 }}>
+              {d?.photo_uri ? (
+                <Image source={{ uri: d.photo_uri }} style={styles.thumb} contentFit="cover" />
+              ) : (
+                <View style={[styles.thumb, { backgroundColor: c.surface }]} />
+              )}
+              {d?.photo_credit ? <PhotoCredit name={d.photo_credit} uri={d.photo_credit_uri} /> : null}
+            </View>
             <View style={{ flex: 1, gap: 2 }}>
               <T variant="bodyStrong" numberOfLines={1}>
                 {p.name}
@@ -110,6 +135,7 @@ function PlaceList({ places }: { places: Place[] | undefined }) {
           </Pressable>
         );
       })}
+      <GoogleMapsCredit />
     </View>
   );
 }

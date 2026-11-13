@@ -1,17 +1,18 @@
-// Imports a saved post into a trip: reads it, asks Claude for the places it recommends, matches each on
-// Google Places, and stores the result for the member to review. POST with the user's Authorization header:
+// Imports a saved post into a trip and serves live Google details for its places.
+// POST with the user's Authorization header:
 //   { action: 'import', trip_id, url?, text? }  -> one JSON line per step, the last with the places found
 //   { action: 'add', link_id, picks: number[] } -> saves the picked places to the trip
+//   { action: 'details', trip_id, place_ids, want: ('address'|'photo'|'hours')[] }
+//                                               -> live Google details for places of the trip (never stored)
 //   { action: 'locate', trip_id }               -> sets a new trip's start point to its city centre
-//   { action: 'delete_trip', trip_id }          -> owner only: deletes the trip and its photo folder
-// Security requirements: docs/security.md ("Requirements for step 2").
 // Membership is checked through the user's own client (RLS); writes use the service role.
+// Security requirements: docs/security.md. Google's terms (what may be stored): docs/google-maps-terms.md.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk@0.134';
 
 import { extractPlaces, usageCost } from './extract.ts';
-import { fetchPhoto, matchPlace, type MatchedPlace } from './places.ts';
+import { basics, findPlaceId, hours, mapsUrl, photoUri, type Basics, type OpeningPeriod } from './places.ts';
 import { readPost, type Post } from './post.ts';
 
 const CORS = {
@@ -20,14 +21,16 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Per-user limits: every import spends Anthropic and Google credit.
+// Per-user limits: every import spends Anthropic and Google credit, every details call Google credit.
 const IMPORTS_PER_HOUR = Number(Deno.env.get('TRIPBOX_IMPORTS_PER_HOUR') ?? 30);
 const IMPORTS_PER_DAY = Number(Deno.env.get('TRIPBOX_IMPORTS_PER_DAY') ?? 150);
-// Across everyone, so a burst of new accounts can't run up the bill.
 const IMPORTS_PER_DAY_ALL = Number(Deno.env.get('TRIPBOX_IMPORTS_PER_DAY_ALL') ?? 2000);
-const MAX_PLACES = 25; // Google lookups per import
+const DETAILS_PER_DAY = Number(Deno.env.get('TRIPBOX_DETAILS_PER_DAY') ?? 1500); // Google calls per person
+const DETAILS_PER_DAY_ALL = Number(Deno.env.get('TRIPBOX_DETAILS_PER_DAY_ALL') ?? 20000);
+const MAX_PLACES = 25; // places per import
+const MAX_DETAILS = 60; // places per details call
 const MAX_KM = 50; // a match farther than this from the start point is another place with the same name
-const CACHE_DAYS = 30; // Google lookups are refetched after this
+const COORDS_DAYS = 25; // refresh Google coordinates before the 30-day limit in Google's terms
 const TEXT_LIMIT = 3000;
 const MAX_LINKS_PER_TRIP = 300;
 const MAX_PLACES_PER_TRIP = 500;
@@ -35,16 +38,24 @@ const MAX_PLACES_PER_TRIP = 500;
 const anthropic = new Anthropic();
 const googleKey = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
 
+/** Stored on the link while it waits for review: our data, place IDs and coordinates only. */
 type Candidate = {
   name: string;
   name_local: string;
   type: string;
   area: string;
   confidence: string;
-  match: (MatchedPlace & { photo_path?: string }) | null;
+  place_id: string | null;
+  lat: number | null;
+  lng: number | null;
   km_away: number | null;
   already: boolean;
 };
+
+/** What the app is shown, live; never stored. */
+type Live = { address?: string; photo_uri?: string | null; photo_credit?: string; photo_credit_uri?: string; hours?: OpeningPeriod[] };
+
+type Usage = { places_calls: number; photo_calls: number; hours_calls: number };
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -54,7 +65,7 @@ Deno.serve(async (req) => {
   if (!googleKey || !Deno.env.get('ANTHROPIC_API_KEY')) return json({ error: 'Import is not set up on the server.' }, 503);
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  // The user's client goes through RLS, so a user can only import into trips they are a member of.
+  // The user's client goes through RLS, so a user only reaches trips they are a member of.
   const userDb = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
   const adminDb = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: who } = await userDb.auth.getUser();
@@ -65,12 +76,11 @@ Deno.serve(async (req) => {
   try {
     if (body.action === 'import') return await importLink(userDb, adminDb, userId, body);
     if (body.action === 'add') return await addPicked(userDb, adminDb, userId, body);
+    if (body.action === 'details') return await details(userDb, adminDb, userId, body);
     if (body.action === 'locate') return json(await locate(userDb, adminDb, userId, String(body.trip_id ?? '')));
-    if (body.action === 'delete_trip') return await deleteTrip(userDb, adminDb, userId, String(body.trip_id ?? ''));
     return json({ error: 'unknown action' }, 400);
   } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    console.error('tripbox-import failed', detail);
+    console.error('tripbox-import failed', e instanceof Error ? e.message : String(e));
     return json({ error: 'Something went wrong. Please try again.' }, 500);
   }
 });
@@ -91,19 +101,21 @@ async function importLink(
 
   const trip = await memberTrip(userDb, tripId);
   if (!trip) return json({ error: 'trip not found' }, 404);
-  const limited = await rateLimited(adminDb, userId);
+  const limited = await importLimited(adminDb, userId);
   if (limited) {
     await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'import', outcome: 'rate_limited', detail: limited });
     return json({ error: limited }, 429);
   }
   const { count: links } = await adminDb.from('trip_links').select('id', { count: 'exact', head: true }).eq('trip_id', tripId);
   if ((links ?? 0) >= MAX_LINKS_PER_TRIP) return json({ error: `This trip already has ${MAX_LINKS_PER_TRIP} imported links.` }, 429);
-  const start = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng } : (await locate(userDb, adminDb, userId, tripId)).hotel;
+  const start = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng! } : (await locate(userDb, adminDb, userId, tripId)).hotel;
 
   const stream = new ReadableStream({
     async start(ctrl) {
       const send = (o: unknown) => ctrl.enqueue(new TextEncoder().encode(JSON.stringify(o) + '\n'));
-      const usage = { ai_input_tokens: 0, ai_output_tokens: 0, places_calls: 0 };
+      const usage: Usage & { ai_input_tokens: number; ai_output_tokens: number } = {
+        ai_input_tokens: 0, ai_output_tokens: 0, places_calls: 0, photo_calls: 0, hours_calls: 0,
+      };
       let linkId: string | null = null;
       try {
         const { data: row, error } = await adminDb
@@ -130,26 +142,29 @@ async function importLink(
         const { data: existingRows } = await adminDb.from('trip_places').select('google_place_id').eq('trip_id', tripId).eq('removed', false);
         const existing = new Set((existingRows ?? []).map((r) => r.google_place_id as string));
         const candidates: Candidate[] = [];
+        const live: Live[] = [];
         for (const [i, p] of places.entries()) {
           const query = [p.name_local || p.name, p.area, found.city || trip.city].filter(Boolean).join(' ');
-          const { match, calls } = await cachedMatch(adminDb, query);
-          usage.places_calls += calls;
-          let photoPath: string | undefined;
-          if (match?.photoName) {
-            const got = await storedPhoto(adminDb, tripId, match.id, match.photoName);
-            photoPath = got.path;
-            usage.places_calls += got.calls;
-          }
+          const placeId = await cachedPlaceId(adminDb, query);
+          // Address and photo for the review, and fresh coordinates (Essentials), plus one photo image.
+          const got = placeId ? await basics(placeId, googleKey) : null;
+          if (placeId) usage.places_calls++;
+          if (got) await cacheCoords(adminDb, query, got);
+          const uri = got?.photoName ? await photoUri(got.photoName, googleKey).catch(() => null) : null;
+          if (got?.photoName) usage.photo_calls++;
           candidates.push({
-            name: p.name,
-            name_local: p.name_local,
+            name: p.name.slice(0, 300),
+            name_local: p.name_local.slice(0, 300),
             type: p.type,
-            area: p.area,
+            area: p.area.slice(0, 200),
             confidence: p.confidence,
-            match: match ? { ...match, photo_path: photoPath } : null,
-            km_away: match && start.lat != null ? Math.round(km(match, start as { lat: number; lng: number })) : null,
-            already: !!match && existing.has(match.id),
+            place_id: got ? placeId : null,
+            lat: got?.lat ?? null,
+            lng: got?.lng ?? null,
+            km_away: got && start.lat != null ? Math.round(km(got, start as { lat: number; lng: number })) : null,
+            already: !!placeId && existing.has(placeId),
           });
+          live.push({ address: got?.address, photo_uri: uri, photo_credit: got?.photoCredit, photo_credit_uri: got?.photoCreditUri });
           send({ step: 'details', done: i + 1, total: places.length });
         }
 
@@ -164,12 +179,12 @@ async function importLink(
             candidates,
           })
           .eq('id', linkId);
-        await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'import', outcome: 'ok', ...usage, detail: `${candidates.length} places, US$${usageCost(found.usage).toFixed(5)}` });
+        await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'import', outcome: 'ok', ...usage, detail: `${candidates.length} places, AI US$${usageCost(found.usage).toFixed(5)}` });
         send({
           step: 'done',
           link_id: linkId,
           source: { url: link, title: post.title, author: post.author, platform: post.platform, image: post.images[0], read_images: found.readImages },
-          candidates,
+          candidates: candidates.map((c, i) => ({ ...c, ...live[i], maps_url: c.place_id ? mapsUrl(c.place_id) : null })),
           max_km: MAX_KM,
         });
       } catch (e) {
@@ -193,34 +208,29 @@ async function addPicked(userDb: SupabaseClient, adminDb: SupabaseClient, userId
   // Read through RLS: only a member of the link's trip gets the row.
   const { data: link } = await userDb.from('trip_links').select('id, trip_id, status, candidates').eq('id', linkId).maybeSingle();
   if (!link || link.status !== 'review') return json({ error: 'This import has expired. Import the link again.' }, 410);
-  const candidates = (link.candidates ?? []) as Candidate[];
   const { count: placeCount } = await adminDb.from('trip_places').select('id', { count: 'exact', head: true }).eq('trip_id', link.trip_id);
-  if ((placeCount ?? 0) + picks.length > MAX_PLACES_PER_TRIP) {
-    return json({ error: `A trip can hold ${MAX_PLACES_PER_TRIP} places. Remove some first.` }, 429);
-  }
+  if ((placeCount ?? 0) + picks.length > MAX_PLACES_PER_TRIP) return json({ error: `A trip can hold ${MAX_PLACES_PER_TRIP} places. Remove some first.` }, 429);
+
+  const candidates = (link.candidates ?? []) as Candidate[];
+  const now = new Date().toISOString();
   const rows = picks
     .map((i) => candidates[i])
-    .filter((c): c is Candidate & { match: NonNullable<Candidate['match']> } => !!c?.match)
+    .filter((c): c is Candidate & { place_id: string } => !!c?.place_id)
     .map((c) => ({
       trip_id: link.trip_id,
       link_id: link.id,
       added_by: userId,
-      google_place_id: c.match.id,
-      name: c.match.name.slice(0, 300),
+      google_place_id: c.place_id,
+      // The name as the post wrote it (ours); Google's name is shown live, never stored.
+      name: (c.name || c.name_local).slice(0, 300),
       name_local: c.name_local?.slice(0, 300) || null,
       type: c.type.slice(0, 30),
       area: c.area?.slice(0, 200) || null,
-      address: c.match.address?.slice(0, 500) || null,
-      lat: c.match.lat,
-      lng: c.match.lng,
-      // Built from the place id, never a URL taken from a page or the AI (it's opened when tapped).
-      maps_url: `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(c.match.id)}`,
-      periods: c.match.periods && JSON.stringify(c.match.periods).length <= 20000 ? c.match.periods : null,
-      // Photos live under the trip's folder (the database checks the prefix).
-      photo_path: c.match.photo_path?.startsWith(`${link.trip_id}/`) ? c.match.photo_path : null,
-      photo_credit: c.match.photoCredit?.slice(0, 500) ?? null,
+      maps_url: mapsUrl(c.place_id),
+      lat: c.lat,
+      lng: c.lat == null ? null : c.lng,
+      coords_fetched_at: c.lat == null ? null : now,
       confidence: c.confidence.slice(0, 20),
-      details_fetched_at: new Date().toISOString(),
     }));
   const ids = [...new Set(rows.map((r) => r.google_place_id))];
   if (rows.length) {
@@ -229,23 +239,102 @@ async function addPicked(userDb: SupabaseClient, adminDb: SupabaseClient, userId
     // A place removed earlier and imported again comes back.
     await adminDb.from('trip_places').update({ removed: false }).eq('trip_id', link.trip_id).in('google_place_id', ids);
   }
-  await adminDb.from('trip_links').update({ status: 'ready' }).eq('id', link.id);
+  await adminDb.from('trip_links').update({ status: 'ready', candidates: null }).eq('id', link.id);
   return json({ added: ids });
+}
+
+// ---------- details: live Google data for places of a trip ----------
+
+async function details(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, body: { trip_id?: string; place_ids?: unknown; want?: unknown }) {
+  const tripId = String(body.trip_id ?? '');
+  const want = new Set(Array.isArray(body.want) ? body.want.filter((w): w is string => ['address', 'photo', 'hours'].includes(String(w))) : []);
+  const asked = Array.isArray(body.place_ids) ? [...new Set(body.place_ids.map(String))].slice(0, MAX_DETAILS) : [];
+  if (!asked.length) return json({ places: {} });
+  // Only places of a trip the caller is a member of (RLS on trip_places).
+  const { data: rows, error } = await userDb
+    .from('trip_places')
+    .select('id, google_place_id, coords_fetched_at')
+    .eq('trip_id', tripId)
+    .in('google_place_id', asked);
+  if (error) throw error;
+  if (!rows.length) return json({ places: {} }); // not a member, or no such places: nothing to fetch or log
+  const limited = await detailsLimited(adminDb, userId, rows.length * (want.size + 1));
+  if (limited) {
+    await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'details', outcome: 'rate_limited', detail: limited });
+    return json({ error: limited }, 429);
+  }
+
+  const usage: Usage = { places_calls: 0, photo_calls: 0, hours_calls: 0 };
+  const out: Record<string, Live & { lat?: number; lng?: number }> = {};
+  const staleBefore = Date.now() - COORDS_DAYS * 864e5;
+  await Promise.all(
+    rows.map(async (r) => {
+      const id = r.google_place_id as string;
+      const stale = !r.coords_fetched_at || Date.parse(r.coords_fetched_at) < staleBefore;
+      const live: Live & { lat?: number; lng?: number } = {};
+      try {
+        if (want.has('address') || want.has('photo') || stale) {
+          const got = await basics(id, googleKey);
+          usage.places_calls++;
+          if (got) {
+            if (stale) {
+              await adminDb.from('trip_places').update({ lat: got.lat, lng: got.lng, coords_fetched_at: new Date().toISOString() }).eq('id', r.id);
+              Object.assign(live, { lat: got.lat, lng: got.lng });
+            }
+            if (want.has('address')) live.address = got.address;
+            if (want.has('photo') && got.photoName) {
+              live.photo_uri = await photoUri(got.photoName, googleKey).catch(() => null);
+              live.photo_credit = got.photoCredit;
+              live.photo_credit_uri = got.photoCreditUri;
+              usage.photo_calls++;
+            }
+          }
+        }
+        if (want.has('hours')) {
+          live.hours = await hours(id, googleKey);
+          usage.hours_calls++;
+        }
+      } catch (e) {
+        console.error('details failed', id, e instanceof Error ? e.message : e);
+      }
+      out[id] = live;
+    }),
+  );
+  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'details', outcome: 'ok', ...usage });
+  return json({ places: out });
 }
 
 // ---------- locate: start each day from the city centre until a hotel is set ----------
 
+/**
+ * The city centre comes from OpenStreetMap (Nominatim), not Google: OpenStreetMap data may be stored
+ * (ODbL, with attribution), so the start point never needs refreshing. Nominatim's usage policy allows light
+ * use with an identifying User-Agent; one lookup per new trip.
+ */
 async function locate(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, tripId: string) {
   const trip = await memberTrip(userDb, tripId);
   if (!trip) throw new UserError('trip not found');
   if (trip.hotel_lat != null) return { hotel: { name: trip.hotel_name, lat: trip.hotel_lat, lng: trip.hotel_lng } };
-  // A search for the bare name finds the region ("Penang" is the state, centred on the mainland);
-  // "city centre" lands downtown, usually on a mall, so the start point is labelled by the city.
-  let { match, calls } = await cachedMatch(adminDb, `${trip.city} city centre`);
-  if (!match) ({ match, calls } = await cachedMatch(adminDb, trip.city));
-  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: match ? 'ok' : 'failed', places_calls: calls });
-  if (!match) return { hotel: { name: null, lat: null, lng: null } };
-  const hotel = { name: `${trip.city} city centre (set your hotel)`, lat: match.lat, lng: match.lng };
+  // A city first; then any match ("Penang" is a state, whose centre is on the island near George Town).
+  let place: { lat: string; lon: string } | undefined;
+  const tries: Record<string, string>[] = [{ featureType: 'city' }, {}];
+  for (const extra of tries) {
+    const q = new URLSearchParams({ q: trip.city, format: 'jsonv2', limit: '1', ...extra });
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${q}`, {
+        headers: { 'User-Agent': 'Tripbox/0.1 (+https://github.com/SiawMZ/tripbox)', 'Accept-Language': 'en' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) console.error('nominatim', res.status, (await res.text()).slice(0, 200));
+      else place = (await res.json())[0];
+    } catch (e) {
+      console.error('nominatim failed', e instanceof Error ? e.message : e);
+    }
+    if (place) break;
+  }
+  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: place ? 'ok' : 'failed' });
+  if (!place) return { hotel: { name: null, lat: null, lng: null } };
+  const hotel = { name: `${trip.city} city centre (set your hotel)`, lat: Number(place.lat), lng: Number(place.lon) };
   await adminDb.from('trips').update({ hotel_name: hotel.name, hotel_lat: hotel.lat, hotel_lng: hotel.lng }).eq('id', tripId);
   return { hotel };
 }
@@ -260,80 +349,56 @@ async function memberTrip(userDb: SupabaseClient, tripId: string) {
   return data as { id: string; city: string; hotel_name: string | null; hotel_lat: number | null; hotel_lng: number | null } | null;
 }
 
-async function rateLimited(adminDb: SupabaseClient, userId: string): Promise<string | null> {
-  const count = async (ms: number, mine: boolean) => {
-    let q = adminDb
-      .from('trip_usage')
-      .select('id', { count: 'exact', head: true })
-      .eq('kind', 'import')
-      .neq('outcome', 'rate_limited')
-      .gte('created_at', new Date(Date.now() - ms).toISOString());
-    if (mine) q = q.eq('user_id', userId);
-    const { count: n, error } = await q;
-    if (error) throw error;
-    return n ?? 0;
-  };
-  const [hour, day, all] = await Promise.all([count(3_600_000, true), count(86_400_000, true), count(86_400_000, false)]);
+async function countUsage(adminDb: SupabaseClient, kind: string, ms: number, userId?: string, sumGoogle = false) {
+  let q = adminDb
+    .from('trip_usage')
+    .select(sumGoogle ? 'places_calls, photo_calls, hours_calls' : 'id', sumGoogle ? undefined : { count: 'exact', head: true })
+    .eq('kind', kind)
+    .neq('outcome', 'rate_limited')
+    .gte('created_at', new Date(Date.now() - ms).toISOString());
+  if (userId) q = q.eq('user_id', userId);
+  const { data, count, error } = await q;
+  if (error) throw error;
+  if (!sumGoogle) return count ?? 0;
+  return (data as unknown as Usage[]).reduce((n, r) => n + r.places_calls + r.photo_calls + r.hours_calls, 0);
+}
+
+async function importLimited(adminDb: SupabaseClient, userId: string): Promise<string | null> {
+  const [hour, day, all] = await Promise.all([
+    countUsage(adminDb, 'import', 3_600_000, userId),
+    countUsage(adminDb, 'import', 86_400_000, userId),
+    countUsage(adminDb, 'import', 86_400_000),
+  ]);
   if (hour >= IMPORTS_PER_HOUR) return `You’ve imported ${hour} links in the last hour. Please wait a little and try again.`;
   if (day >= IMPORTS_PER_DAY) return `You’ve reached today’s limit of ${IMPORTS_PER_DAY} imports. Try again tomorrow.`;
   if (all >= IMPORTS_PER_DAY_ALL) return 'Tripbox has reached today’s import limit. Please try again tomorrow.';
   return null;
 }
 
-/** Google lookups are cached by query for CACHE_DAYS (Google's terms limit how long details may be kept). */
-async function cachedMatch(adminDb: SupabaseClient, query: string): Promise<{ match: MatchedPlace | null; calls: number }> {
+async function detailsLimited(adminDb: SupabaseClient, userId: string, upcoming: number): Promise<string | null> {
+  const [mine, all] = await Promise.all([
+    countUsage(adminDb, 'details', 86_400_000, userId, true),
+    countUsage(adminDb, 'details', 86_400_000, undefined, true),
+  ]);
+  if (mine + upcoming > DETAILS_PER_DAY) return 'You’ve viewed a lot of place details today. Photos and opening hours are back tomorrow.';
+  if (all + upcoming > DETAILS_PER_DAY_ALL) return 'Tripbox has reached today’s limit for place details. Please try again tomorrow.';
+  return null;
+}
+
+/** Query -> Google place ID, cached (place IDs may be stored indefinitely). The ID-only search is free. */
+async function cachedPlaceId(adminDb: SupabaseClient, query: string): Promise<string | null> {
   const key = await hash(query.toLowerCase());
-  const { data } = await adminDb.from('trip_place_cache').select('match, created_at').eq('query_hash', key).maybeSingle();
-  if (data && Date.now() - Date.parse(data.created_at) < CACHE_DAYS * 864e5) return { match: data.match as MatchedPlace | null, calls: 0 };
-  const match = await matchPlace(query, googleKey);
-  await adminDb.from('trip_place_cache').upsert({ query_hash: key, match, created_at: new Date().toISOString() });
-  return { match, calls: 1 };
+  const { data } = await adminDb.from('trip_place_cache').select('place_id').eq('query_hash', key).maybeSingle();
+  if (data) return data.place_id as string | null;
+  const placeId = await findPlaceId(query, googleKey);
+  await adminDb.from('trip_place_cache').upsert({ query_hash: key, place_id: placeId });
+  return placeId;
 }
 
-/**
- * A place's photo in the trip's own folder (`<trip_id>/<place_id>.jpg`, as the database requires). The image is
- * downloaded from Google once into `cache/` and copied into each trip that adds the place: copying inside
- * storage is free, so a café saved in many trips costs one Google photo call.
- */
-async function storedPhoto(adminDb: SupabaseClient, tripId: string, placeId: string, photoName: string): Promise<{ path?: string; calls: number }> {
-  const file = `${placeId.replace(/[^A-Za-z0-9_-]/g, '')}.jpg`;
-  const path = `${tripId}/${file}`;
-  const bucket = adminDb.storage.from('trip-photos');
-  const exists = async (folder: string) => ((await bucket.list(folder, { search: file, limit: 1 })).data ?? []).some((f) => f.name === file);
-  if (await exists(tripId)) return { path, calls: 0 };
-  let calls = 0;
-  if (!(await exists('cache'))) {
-    const bytes = await fetchPhoto(photoName, googleKey);
-    calls = 1;
-    if (!bytes) return { calls };
-    const { error } = await bucket.upload(`cache/${file}`, bytes, { contentType: 'image/jpeg', upsert: true });
-    if (error) return { calls };
-  }
-  const { error } = await bucket.copy(`cache/${file}`, path);
-  return error ? { calls } : { path, calls };
-}
-
-// ---------- delete a trip, with its photo folder (database cascades don't reach storage) ----------
-
-async function deleteTrip(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, tripId: string) {
-  if (!/^[0-9a-f-]{36}$/i.test(tripId)) return json({ error: 'trip not found' }, 404);
-  // Through RLS and checked against the caller: only the owner may delete.
-  const { data: trip } = await userDb.from('trips').select('id, owner_id').eq('id', tripId).maybeSingle();
-  if (!trip) return json({ error: 'trip not found' }, 404);
-  if (trip.owner_id !== userId) return json({ error: 'Only the person who created this trip can delete it.' }, 403);
-  const { error } = await userDb.from('trips').delete().eq('id', tripId);
-  if (error) throw error;
-  const bucket = adminDb.storage.from('trip-photos');
-  for (;;) {
-    const { data: files } = await bucket.list(tripId, { limit: 100 });
-    if (!files?.length) break;
-    const { error: rmError } = await bucket.remove(files.map((f) => `${tripId}/${f.name}`));
-    if (rmError) {
-      console.error('photo cleanup failed', tripId, rmError.message);
-      break;
-    }
-  }
-  return json({ deleted: tripId });
+/** Coordinates beside the cached ID, with their date (cleared after 30 days by trip_expire_google_coords). */
+async function cacheCoords(adminDb: SupabaseClient, query: string, got: Basics) {
+  const key = await hash(query.toLowerCase());
+  await adminDb.from('trip_place_cache').update({ lat: got.lat, lng: got.lng, coords_fetched_at: new Date().toISOString() }).eq('query_hash', key);
 }
 
 async function logUsage(adminDb: SupabaseClient, row: Record<string, unknown>) {

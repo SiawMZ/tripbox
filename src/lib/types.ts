@@ -43,7 +43,10 @@ export type TripPatch = Partial<
 
 export type NewTrip = Pick<Trip, 'name' | 'city' | 'start_date' | 'days'>;
 
-/** A row of public.trip_places: one real place in a trip, shared by its members. */
+/**
+ * A row of public.trip_places: one real place in a trip, shared by its members. `name` and `name_local` are as
+ * the post wrote them (ours); Google's name, address, hours and photo are fetched live (see importer.fetchDetails).
+ */
 export type Place = {
   id: string;
   trip_id: string;
@@ -54,13 +57,11 @@ export type Place = {
   name_local: string | null;
   type: string;
   area: string | null;
-  address: string | null;
-  lat: number;
-  lng: number;
+  /** From Google: kept at most 30 days (Google's terms), then cleared until refreshed. */
+  lat: number | null;
+  lng: number | null;
+  coords_fetched_at: string | null;
   maps_url: string | null;
-  periods: unknown;
-  photo_path: string | null;
-  photo_credit: string | null;
   confidence: string | null;
   must: boolean;
   fixed_day: number | null;

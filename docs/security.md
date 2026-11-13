@@ -52,12 +52,11 @@ How `supabase/functions/tripbox-import` meets the requirements below:
 - 6: the reply is parsed against a fixed schema (types and confidence from fixed lists); strings are cut to
   the column limits before insert.
 - 7: `maps_url` is built from the place id.
-- 8: photos are downloaded from Google once into `trip-photos/cache/<place_id>.jpg` and copied into
-  `<trip_id>/<place_id>.jpg` for each trip (storage copies are free). The bucket is public; trip folders are
-  unguessable UUIDs. Trips are deleted through the function (`delete_trip`, owner only), which also removes
-  the trip's photo folder. Photos of places found but not added stay in the trip's folder until the trip is
-  deleted. Before a public launch: check Google's terms for storing Place Photos.
-- 10: still to do: database checks for `trip_usage`, `trip_place_cache` and the bucket in `trips_rls.test.sql`.
+- 8: superseded by Google's terms (docs/google-maps-terms.md): no photos or other Google content are stored.
+  Photos are fetched live through the `details` action, which only answers for places of a trip the caller is
+  a member of. The photo bucket and the `<trip_id>/` photo rule went with it.
+- 10: `trips_rls.test.sql` checks that users can't read or write `trip_usage` or `trip_place_cache`, can't run the
+  coordinate clean-up, and that coordinates older than 30 days are deleted (60 checks).
 
 ## Requirements for step 2 (import function)
 

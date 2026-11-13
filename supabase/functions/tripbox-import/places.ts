@@ -1,74 +1,81 @@
-// Google Places API (New): find the place a post names, and fetch its first photo.
-// https://developers.google.com/maps/documentation/places/web-service/text-search
+// Google Places API (New), used within Google's terms (docs/google-maps-terms.md): the place ID may be stored,
+// coordinates for up to 30 days, and everything else is fetched live and never stored.
+// Each call asks only for the fields it needs, because the field mask sets the price tier:
+//   findPlaceId  Text Search, IDs only            free
+//   basics       Place Details Essentials         address, coordinates, photo list (US$5 / 1,000)
+//   hours        Place Details Enterprise         opening hours (US$20 / 1,000)
+//   photoUri     Place Photo                      one image (US$7 / 1,000)
+// Prices and free monthly allowances: https://developers.google.com/maps/billing-and-pricing/pricing
 
 export type OpeningPeriod = {
   open: { day: number; hour: number; minute: number };
   close?: { day: number; hour: number; minute: number };
 };
 
-export type MatchedPlace = {
-  id: string;
-  name: string;
-  address: string;
+export type Basics = {
   lat: number;
   lng: number;
-  primaryType?: string;
-  mapsUrl?: string;
-  /** Google's weekly hours; day 0 = Sunday. Missing = unknown (treated as always open). */
-  periods?: OpeningPeriod[];
-  /** Resource name of the first photo, and its author (Google asks apps to show the credit). */
+  address: string;
+  /** Resource name of the first photo (can't be stored; it also expires), and its author. */
   photoName?: string;
   photoCredit?: string;
+  /** Link to the photographer on Google Maps (Google asks apps to show the credit with the photo). */
+  photoCreditUri?: string;
 };
 
-// Hours and photos put the call in a higher price tier; the planner needs hours, and asking for the
-// photo here saves a separate Place Details call per place.
-const FIELD_MASK = [
-  'places.id',
-  'places.displayName',
-  'places.formattedAddress',
-  'places.location',
-  'places.primaryType',
-  'places.googleMapsUri',
-  'places.regularOpeningHours.periods',
-  'places.photos',
-].join(',');
+const BASE = 'https://places.googleapis.com/v1';
 
-export async function matchPlace(query: string, apiKey: string): Promise<MatchedPlace | null> {
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': FIELD_MASK },
-    body: JSON.stringify({ textQuery: query, pageSize: 1 }),
-    signal: AbortSignal.timeout(15_000),
-  });
+async function google(url: string, init: RequestInit) {
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Places ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const p = (await res.json()).places?.[0];
+  return res.json();
+}
+
+/** The place a post names, as a Google place ID. IDs-only Text Search is free. */
+export async function findPlaceId(query: string, apiKey: string): Promise<string | null> {
+  const data = await google(`${BASE}/places:searchText`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.id' },
+    body: JSON.stringify({ textQuery: query, pageSize: 1 }),
+  });
+  return (data.places?.[0]?.id as string | undefined) ?? null;
+}
+
+/** Address, coordinates and the first photo's name (Place Details Essentials; the photo list is free with it). */
+export async function basics(placeId: string, apiKey: string): Promise<Basics | null> {
+  const p = await google(`${BASE}/places/${encodeURIComponent(placeId)}`, {
+    headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'location,formattedAddress,photos' },
+  });
   if (!p?.location) return null;
+  const author = p.photos?.[0]?.authorAttributions?.[0];
   return {
-    id: p.id,
-    name: p.displayName?.text ?? query,
-    address: p.formattedAddress ?? '',
     lat: p.location.latitude,
     lng: p.location.longitude,
-    primaryType: p.primaryType,
-    mapsUrl: p.googleMapsUri,
-    periods: p.regularOpeningHours?.periods,
+    address: p.formattedAddress ?? '',
     photoName: p.photos?.[0]?.name,
-    photoCredit: p.photos?.[0]?.authorAttributions?.[0]?.displayName,
+    photoCredit: author?.displayName,
+    photoCreditUri: author?.uri,
   };
 }
 
-/** Downloads a place photo (about 240 px wide). Returns the JPEG bytes, or null. */
-export async function fetchPhoto(photoName: string, apiKey: string): Promise<Uint8Array | null> {
-  // skipHttpRedirect returns the image address as JSON instead of redirecting to it.
-  const meta = await fetch(`https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=240&skipHttpRedirect=true`, {
-    headers: { 'X-Goog-Api-Key': apiKey },
-    signal: AbortSignal.timeout(15_000),
+/** Weekly opening hours (Place Details Enterprise); day 0 = Sunday. Undefined when Google has none. */
+export async function hours(placeId: string, apiKey: string): Promise<OpeningPeriod[] | undefined> {
+  const p = await google(`${BASE}/places/${encodeURIComponent(placeId)}`, {
+    headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'regularOpeningHours' },
   });
-  const uri = meta.ok ? (await meta.json()).photoUri : null;
-  if (!uri || !/^https:\/\/[a-z0-9.-]+\.(googleusercontent|google|googleapis)\.com\//i.test(uri)) return null;
-  const img = await fetch(uri, { signal: AbortSignal.timeout(15_000) });
-  if (!img.ok) return null;
-  const bytes = new Uint8Array(await img.arrayBuffer());
-  return bytes.length && bytes.length <= 2 * 1024 * 1024 ? bytes : null;
+  return p?.regularOpeningHours?.periods;
+}
+
+/** A short-lived address of the photo image (about `width` px wide), for the app to show directly. */
+export async function photoUri(photoName: string, apiKey: string, width = 240): Promise<string | null> {
+  const meta = await google(`${BASE}/${photoName}/media?maxWidthPx=${width}&skipHttpRedirect=true`, {
+    headers: { 'X-Goog-Api-Key': apiKey },
+  });
+  const uri = meta?.photoUri as string | undefined;
+  return uri && /^https:\/\/[a-z0-9.-]+\.(googleusercontent|google|googleapis)\.com\//i.test(uri) ? uri : null;
+}
+
+/** The place on Google Maps, built from its ID (never a URL from a page or the AI). */
+export function mapsUrl(placeId: string) {
+  return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`;
 }

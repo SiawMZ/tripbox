@@ -2,24 +2,37 @@ import { fetch as streamingFetch } from 'expo/fetch';
 
 import { supabase } from './supabase';
 
-/** A place the import found, waiting for the member to tick it (see supabase/functions/tripbox-import). */
+/**
+ * A place the import found, waiting for the member to tick it (see supabase/functions/tripbox-import).
+ * `address`, `photo_uri` and the credit are Google's, shown live and never stored (docs/google-maps-terms.md).
+ */
 export type Candidate = {
   name: string;
   name_local: string;
   type: string;
   area: string;
   confidence: 'high' | 'medium' | 'low' | string;
-  match: {
-    id: string;
-    name: string;
-    address: string;
-    lat: number;
-    lng: number;
-    photo_path?: string;
-    photoCredit?: string;
-  } | null;
+  place_id: string | null;
+  lat: number | null;
+  lng: number | null;
   km_away: number | null;
   already: boolean;
+  address?: string;
+  photo_uri?: string | null;
+  photo_credit?: string;
+  photo_credit_uri?: string;
+  maps_url: string | null;
+};
+
+/** Live Google details for a saved place (never stored). */
+export type LiveDetails = {
+  address?: string;
+  photo_uri?: string | null;
+  photo_credit?: string;
+  photo_credit_uri?: string;
+  hours?: unknown;
+  lat?: number;
+  lng?: number;
 };
 
 export type ImportSource = {
@@ -101,17 +114,17 @@ export async function locateTrip(tripId: string) {
   return call<{ hotel: { name: string | null; lat: number | null; lng: number | null } }>({ action: 'locate', trip_id: tripId });
 }
 
-/** Owner only: deletes the trip and its photos (storage isn't reached by the database's cascades). */
-export async function deleteTripWithPhotos(tripId: string) {
-  await call<{ deleted: string }>({ action: 'delete_trip', trip_id: tripId });
+/**
+ * Live Google details (address, photo, opening hours) for places of a trip. Each costs a Google call, so ask
+ * only for what the screen shows; results may be kept in memory for the visit but never stored.
+ */
+export async function fetchDetails(tripId: string, placeIds: string[], want: ('address' | 'photo' | 'hours')[]) {
+  const out = await call<{ places: Record<string, LiveDetails> }>({ action: 'details', trip_id: tripId, place_ids: placeIds, want });
+  return out.places;
 }
 
 /** 👍 / 👎 on an import: how well it found the places. */
 export async function rateImport(linkId: string, rating: 'good' | 'bad') {
   const { error } = await supabase.from('trip_links').update({ rating }).eq('id', linkId);
   if (error) throw error;
-}
-
-export function photoUrl(path: string | null | undefined) {
-  return path ? supabase.storage.from('trip-photos').getPublicUrl(path).data.publicUrl : null;
 }

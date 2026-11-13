@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button, Check, Field, Rule, Sheet, T } from '@/components/ui';
-import { addPicked, photoUrl, rateImport, runImport, type Candidate, type ImportEvent, type ImportSource } from '@/lib/importer';
+import { addPicked, rateImport, runImport, type Candidate, type ImportEvent, type ImportSource } from '@/lib/importer';
 import { space, useColors } from '@/lib/theme';
 
 const STEPS = [
@@ -66,7 +66,7 @@ export function ImportSheet({
       setPicked(
         new Set(
           e.candidates
-            .map((c, i) => (c.match && !c.already && (c.km_away ?? 0) <= e.max_km ? i : -1))
+            .map((c, i) => (c.place_id && !c.already && (c.km_away ?? 0) <= e.max_km ? i : -1))
             .filter((i) => i >= 0),
         ),
       );
@@ -166,7 +166,7 @@ export function ImportSheet({
                 checked={picked.has(i)}
                 onToggle={() =>
                   setPicked((prev) => {
-                    if (!c.match) return prev;
+                    if (!c.place_id) return prev;
                     const next = new Set(prev);
                     if (next.has(i)) next.delete(i);
                     else next.add(i);
@@ -178,6 +178,7 @@ export function ImportSheet({
           ) : (
             <T tone="muted">No places found in this post. If they’re only in the video or pictures, go back and type the place names.</T>
           )}
+          {review.candidates.length ? <GoogleMapsCredit /> : null}
           {error ? <T tone="danger">{error}</T> : null}
           <View style={styles.row}>
             <Button variant="secondary" label="Back" onPress={() => setPhase('input')} />
@@ -248,8 +249,8 @@ function Source({ source }: { source: ImportSource }) {
 
 function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: number; checked: boolean; onToggle: () => void }) {
   const colors = useColors();
-  const photo = photoUrl(c.match?.photo_path);
-  const note = !c.match
+  const found = !!c.place_id;
+  const note = !found
     ? 'Not found on the map'
     : c.already
       ? 'Already in this trip'
@@ -258,24 +259,27 @@ function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: nu
         : c.confidence === 'low'
           ? 'Unsure: check this is the right place'
           : '';
-  const warn = !!c.match && !c.already && !!note;
+  const warn = found && !c.already && !!note;
   return (
     <Pressable
       onPress={onToggle}
-      disabled={!c.match}
+      disabled={!found}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked, disabled: !c.match }}
-      accessibilityLabel={c.match?.name ?? c.name}
+      accessibilityState={{ checked, disabled: !found }}
+      accessibilityLabel={c.name || c.name_local}
       style={styles.candidate}>
-      {photo ? <Image source={{ uri: photo }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: colors.surface }]} />}
+      <View style={{ gap: 2 }}>
+        {c.photo_uri ? <Image source={{ uri: c.photo_uri }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: colors.surface }]} />}
+        {c.photo_credit ? <PhotoCredit name={c.photo_credit} uri={c.photo_credit_uri} /> : null}
+      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <T variant="bodyStrong" numberOfLines={1}>
-          {c.match?.name ?? c.name}
-          {c.name_local && c.name_local !== (c.match?.name ?? c.name) ? <T variant="small" tone="muted">{`  ${c.name_local}`}</T> : null}
+          {c.name || c.name_local}
+          {c.name_local && c.name_local !== c.name ? <T variant="small" tone="muted">{`  ${c.name_local}`}</T> : null}
         </T>
         <T variant="small" tone="muted" numberOfLines={2}>
           {c.type}
-          {c.match?.address ? ` · ${c.match.address}` : ''}
+          {c.address ? ` · ${c.address}` : ''}
         </T>
         {note ? (
           <T variant="small" tone={warn ? 'danger' : 'muted'}>
@@ -285,6 +289,30 @@ function CandidateRow({ c, maxKm, checked, onToggle }: { c: Candidate; maxKm: nu
       </View>
       <Check checked={checked} />
     </Pressable>
+  );
+}
+
+/** Google asks for the photographer's name with each Google photo, linked to their profile when there is one. */
+export function PhotoCredit({ name, uri }: { name: string; uri?: string }) {
+  return (
+    <T
+      variant="small"
+      tone="muted"
+      numberOfLines={1}
+      style={{ fontSize: 10, lineHeight: 12, maxWidth: 56 }}
+      onPress={uri ? () => void Linking.openURL(uri) : undefined}
+      accessibilityRole={uri ? 'link' : 'text'}>
+      {name}
+    </T>
+  );
+}
+
+/** "Google Maps" next to content from Google (address, photos), as Google's attribution rules ask. */
+export function GoogleMapsCredit() {
+  return (
+    <T variant="small" tone="muted" style={{ fontSize: 12 }}>
+      Places and photos: Google Maps
+    </T>
   );
 }
 

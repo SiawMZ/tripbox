@@ -6,7 +6,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(54);
+select plan(60);
 
 -- ---------- fixtures (as postgres) ----------
 insert into auth.users (id, aud, role, email, instance_id) values
@@ -83,21 +83,21 @@ select lives_ok(
   'service role inserts a link'
 );
 select lives_ok(
-  $$ with p as (insert into trip_places (trip_id, link_id, google_place_id, name, lat, lng, maps_url)
-       select (select id from ids where name = 'trip'), (select id from ids where name = 'link'), 'g1', 'Shop', 25, 121,
+  $$ with p as (insert into trip_places (trip_id, link_id, google_place_id, name, lat, lng, coords_fetched_at, maps_url)
+       select (select id from ids where name = 'trip'), (select id from ids where name = 'link'), 'g1', 'Shop', 25, 121, now(),
               'https://maps.google.com/?cid=1' returning id)
      insert into ids select 'place', id from p $$,
   'service role inserts a place'
 );
 select throws_ok(
-  $$ insert into trip_places (trip_id, google_place_id, name, lat, lng, maps_url)
-     select id, 'g2', 'Bad', 25, 121, 'javascript:alert(1)' from ids where name = 'trip' $$,
+  $$ insert into trip_places (trip_id, google_place_id, name, lat, lng, coords_fetched_at, maps_url)
+     select id, 'g2', 'Bad', 25, 121, now(), 'javascript:alert(1)' from ids where name = 'trip' $$,
   '23514', null, 'maps_url must be an https link'
 );
 select throws_ok(
-  $$ insert into trip_places (trip_id, google_place_id, name, lat, lng, photo_path)
-     select id, 'g3', 'Bad', 25, 121, 'someone-else/photo.jpg' from ids where name = 'trip' $$,
-  '23514', null, 'photo_path must be under the trip''s folder'
+  $$ insert into trip_places (trip_id, google_place_id, name, lat, lng)
+     select id, 'g3', 'Bad', 25, 121 from ids where name = 'trip' $$,
+  '23514', null, 'Google coordinates must come with their fetch date (they expire after 30 days)'
 );
 -- A second trip for B, to check a place can't point at another trip's link.
 select lives_ok(
@@ -107,8 +107,8 @@ select lives_ok(
   'service role creates a trip for B'
 );
 select throws_ok(
-  $$ insert into trip_places (trip_id, link_id, google_place_id, name, lat, lng)
-     select (select id from ids where name = 'trip_b'), (select id from ids where name = 'link'), 'g4', 'Mixed', 5, 100 $$,
+  $$ insert into trip_places (trip_id, link_id, google_place_id, name, lat, lng, coords_fetched_at)
+     select (select id from ids where name = 'trip_b'), (select id from ids where name = 'link'), 'g4', 'Mixed', 5, 100, now() $$,
   '23503', null, 'a place cannot point at a link of another trip'
 );
 
@@ -219,6 +219,22 @@ select pg_temp.as_user('aaaaaaaa-0000-4000-8000-000000000001');
 insert into trips (name, city, start_date) select 'T' || g, 'X', '2027-01-01' from generate_series(1, 100) g;
 select throws_ok($$ insert into trips (name, city, start_date) values ('one too many', 'X', '2027-01-01') $$,
   '54000', null, 'one account can have at most 100 trips');
+
+-- ---------- step 2: usage log, lookup cache, Google coordinates expire (docs/google-maps-terms.md) ----------
+select pg_temp.as_user('aaaaaaaa-0000-4000-8000-000000000001');
+select throws_ok($$ select * from trip_usage $$, '42501', null, 'users cannot read the usage log');
+select throws_ok($$ insert into trip_usage (user_id, kind, outcome) values ('aaaaaaaa-0000-4000-8000-000000000001', 'import', 'ok') $$,
+  '42501', null, 'users cannot write the usage log');
+select throws_ok($$ select * from trip_place_cache $$, '42501', null, 'users cannot read the Google lookup cache');
+select throws_ok($$ select public.trip_expire_google_coords() $$, '42501', null, 'users cannot run the coordinate clean-up');
+reset role;
+insert into trip_places (trip_id, google_place_id, name, lat, lng, coords_fetched_at)
+  select id, 'old', 'Old', 5, 100, now() - interval '31 days' from ids where name = 'trip_b';
+insert into trip_places (trip_id, google_place_id, name, lat, lng, coords_fetched_at)
+  select id, 'new', 'New', 5, 100, now() - interval '2 days' from ids where name = 'trip_b';
+select public.trip_expire_google_coords();
+select is((select lat from trip_places where google_place_id = 'old'), null, 'coordinates older than 30 days are deleted');
+select is((select lat from trip_places where google_place_id = 'new'), 5::float8, 'recent coordinates are kept');
 
 select * from finish();
 rollback;

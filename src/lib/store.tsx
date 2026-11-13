@@ -1,7 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { deleteTripWithPhotos, locateTrip } from './importer';
+import { locateTrip } from './importer';
 import { supabase } from './supabase';
 import type { NewTrip, Place, Trip, TripPatch } from './types';
 
@@ -118,8 +118,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteTrip = useCallback(async (id: string) => {
-    // Through the function, so the trip's photo folder goes too; it checks that the caller is the owner.
-    await deleteTripWithPhotos(id);
+    // RLS lets only the owner delete; a member's delete matches no row, so check that it happened.
+    const { data, error } = await supabase.from('trips').delete().eq('id', id).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Only the person who created this trip can delete it.');
     setTrips((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
