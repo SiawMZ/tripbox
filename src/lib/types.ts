@@ -16,6 +16,9 @@ export type Trip = {
   hotel_name: string | null;
   hotel_lat: number | null;
   hotel_lng: number | null;
+  /** Set when the start point was picked from Google: its coordinates are refreshed and expire after 30 days. */
+  hotel_place_id: string | null;
+  hotel_coords_fetched_at: string | null;
   /** When the trip was last optimized; null = never. */
   planned_at: string | null;
   created_at: string;

@@ -12,7 +12,7 @@ tables, and adds no policy or function to them. Each picked post then goes throu
 link (at most 20 per batch in the app; the function's own limits, 30 imports an hour and 150 a day, still apply).
 
 Run the database checks with `npx supabase db reset` then `npx supabase test db`
-(`supabase/tests/database/trips_rls.test.sql`: two users, a signed-out visitor and the service role; 65 checks).
+(`supabase/tests/database/trips_rls.test.sql`: two users, a signed-out visitor and the service role; 77 checks).
 Add a check there with every new table, policy or RPC.
 
 ## Review of step 1 (2026-11-12)
@@ -76,8 +76,14 @@ How `supabase/functions/tripbox-import` meets the requirements below:
 - Opening-hours checks are limited per calendar month: 300 per person and 950 for everyone (inside Google's free
   1,000), env `TRIPBOX_HOURS_PER_MONTH` / `TRIPBOX_HOURS_PER_MONTH_ALL`. Over the limit "Plan my days" returns 429
   with a readable message; dragging still works.
-- `find_start` searches OpenStreetMap for a start point: query ≤ 200 characters, members only, 60 searches an hour
-  per person (logged as `locate` in `trip_usage`).
+- Start point (2026-11-13): OpenStreetMap's Nominatim refuses requests from Supabase's servers (403), so the old
+  `locate` / `find_start` actions are gone. A new trip's city centre is looked up from the traveller's own browser or
+  phone (`src/lib/geocode.ts`, stored freely: OpenStreetMap data). Hotels are searched with Google (`search_start`:
+  Autocomplete suggestions, shown but not stored; `set_start`: one Place Details Essentials call for the picked place's
+  coordinates), members only, 60 searches an hour per person (logged as `locate` in `trip_usage`). Only the function
+  writes `trips.hotel_place_id` / `hotel_coords_fetched_at` (not in the column grants); a member changing the
+  coordinates clears them (`trip_hotel_source` trigger); the daily clean-up clears Google start coordinates after
+  30 days; planning refreshes them after 25 (`20261113180000_trip_hotel_google.sql`, checked by the test).
 - Map keys are public by design (they ship in the web bundle and the APK), so they must be restricted in Google
   Cloud: the web key to Maps JavaScript API and the Tripbox web address; the Android key to Maps SDK for Android
   and the app's package and signing SHA-1. Neither may be the server's Places key (`GOOGLE_MAPS_API_KEY`).

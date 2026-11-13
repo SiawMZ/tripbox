@@ -2,10 +2,10 @@
 // POST with the user's Authorization header:
 //   { action: 'import', trip_id, url?, text? }  -> one JSON line per step, the last with the places found
 //   { action: 'add', link_id, picks: number[] } -> saves the picked places to the trip
-//   { action: 'find_start', trip_id, query }     -> up to 5 OpenStreetMap results for a hotel or address
+//   { action: 'search_start', trip_id, query, session } -> Google suggestions for a hotel or address (shown, not stored)
+//   { action: 'set_start', trip_id, place_id, name, session } -> the picked suggestion becomes the trip's start point
 //   { action: 'details', trip_id, place_ids, want: ('address'|'photo'|'hours')[] }
 //                                               -> live Google details for places of the trip (never stored)
-//   { action: 'locate', trip_id }               -> sets a new trip's start point to its city centre
 // Membership is checked through the user's own client (RLS); writes use the service role.
 // Security requirements: docs/security.md. Google's terms (what may be stored): docs/google-maps-terms.md.
 
@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk@0.134';
 
 import { extractPlaces, usageCost } from './extract.ts';
-import { basics, findPlaceId, hours, mapsUrl, photoUri, type Basics, type OpeningPeriod } from './places.ts';
+import { basics, findPlaceId, hours, mapsUrl, photoUri, placeLocation, suggest, type Basics, type OpeningPeriod, type Suggestion } from './places.ts';
 import { downloadImageBytes, readPost, type Post } from './post.ts';
 
 const CORS = {
@@ -85,8 +85,8 @@ Deno.serve(async (req) => {
     if (body.action === 'import') return await importLink(userDb, adminDb, userId, body);
     if (body.action === 'add') return await addPicked(userDb, adminDb, userId, body);
     if (body.action === 'details') return await details(userDb, adminDb, userId, body);
-    if (body.action === 'locate') return json(await locate(userDb, adminDb, userId, String(body.trip_id ?? '')));
-    if (body.action === 'find_start') return await findStart(userDb, adminDb, userId, body);
+    if (body.action === 'search_start') return await searchStart(userDb, adminDb, userId, body);
+    if (body.action === 'set_start') return await setStart(userDb, adminDb, userId, body);
     return json({ error: 'unknown action' }, 400);
   } catch (e) {
     console.error('tripbox-import failed', e instanceof Error ? e.message : String(e));
@@ -117,7 +117,8 @@ async function importLink(
   }
   const { count: links } = await adminDb.from('trip_links').select('id', { count: 'exact', head: true }).eq('trip_id', tripId);
   if ((links ?? 0) >= MAX_LINKS_PER_TRIP) return json({ error: `This trip already has ${MAX_LINKS_PER_TRIP} imported links.` }, 429);
-  const start = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng! } : (await locate(userDb, adminDb, userId, tripId)).hotel;
+  // Matches far from the start point are flagged; without a start point (the app sets the city centre) nothing is.
+  const start = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng! } : { lat: null, lng: null };
 
   const stream = new ReadableStream({
     async start(ctrl) {
@@ -291,6 +292,11 @@ async function details(userDb: SupabaseClient, adminDb: SupabaseClient, userId: 
   }
 
   const usage: Usage = { places_calls: 0, photo_calls: 0, hours_calls: 0 };
+  // Planning asks for hours: also bring a Google start point's coordinates up to date.
+  if (want.has('hours')) {
+    const trip = await memberTrip(userDb, tripId);
+    if (trip) await refreshStart(adminDb, trip, usage);
+  }
   const out: Record<string, Live & { lat?: number; lng?: number }> = {};
   const staleBefore = Date.now() - COORDS_DAYS * 864e5;
   await Promise.all(
@@ -330,91 +336,108 @@ async function details(userDb: SupabaseClient, adminDb: SupabaseClient, userId: 
   return json({ places: out });
 }
 
-// ---------- locate: start each day from the city centre until a hotel is set ----------
-
-/**
- * The city centre comes from OpenStreetMap (Nominatim), not Google: OpenStreetMap data may be stored
- * (ODbL, with attribution), so the start point never needs refreshing. Nominatim's usage policy allows light
- * use with an identifying User-Agent; one lookup per new trip.
- */
-async function locate(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, tripId: string) {
-  const trip = await memberTrip(userDb, tripId);
-  if (!trip) throw new UserError('trip not found');
-  if (trip.hotel_lat != null) return { hotel: { name: trip.hotel_name, lat: trip.hotel_lat, lng: trip.hotel_lng } };
-  // A city first; then any match ("Penang" is a state, whose centre is on the island near George Town).
-  let place: { lat: string; lon: string } | undefined;
-  const tries: Record<string, string>[] = [{ featureType: 'city' }, {}];
-  for (const extra of tries) {
-    const q = new URLSearchParams({ q: trip.city, format: 'jsonv2', limit: '1', ...extra });
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?${q}`, {
-        headers: { 'User-Agent': 'Tripbox/0.1 (+https://github.com/SiawMZ/tripbox)', 'Accept-Language': 'en' },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) console.error('nominatim', res.status, (await res.text()).slice(0, 200));
-      else place = (await res.json())[0];
-    } catch (e) {
-      console.error('nominatim failed', e instanceof Error ? e.message : e);
-    }
-    if (place) break;
-  }
-  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: place ? 'ok' : 'failed' });
-  if (!place) return { hotel: { name: null, lat: null, lng: null } };
-  const hotel = { name: `${trip.city} city centre (set your hotel)`, lat: Number(place.lat), lng: Number(place.lon) };
-  await adminDb.from('trips').update({ hotel_name: hotel.name, hotel_lat: hotel.lat, hotel_lng: hotel.lng }).eq('id', tripId);
-  return { hotel };
-}
-
-// ---------- find_start: search a hotel or address to start each day from ----------
+// ---------- start point: a hotel or address from Google ----------
+//
+// OpenStreetMap misses many hotels and refuses requests from Supabase's servers, so the start point comes from
+// Google: Autocomplete (New) suggestions, shown in the app and never stored, then one Place Details Essentials call
+// for the picked place's coordinates. Both carry the app's session token, so Google bills them as one session.
+// The place ID is stored; the coordinates are dated and refreshed like a place's (docs/google-maps-terms.md).
+// A new trip's city centre comes from OpenStreetMap in the app itself.
 
 const SEARCHES_PER_HOUR = 60;
 
-/** OpenStreetMap search near the trip's city (stored freely, like the city centre above). The app saves the pick. */
-async function findStart(userDb: SupabaseClient, adminDb: SupabaseClient, userId: string, body: { trip_id?: string; query?: string }) {
+async function searchStart(
+  userDb: SupabaseClient,
+  adminDb: SupabaseClient,
+  userId: string,
+  body: { trip_id?: string; query?: string; session?: string },
+) {
   const tripId = String(body.trip_id ?? '');
   const query = String(body.query ?? '').trim().slice(0, 200);
+  const session = sessionToken(body.session);
   if (query.length < 2) return json({ results: [] });
   const trip = await memberTrip(userDb, tripId);
   if (!trip) return json({ error: 'trip not found' }, 404);
   if ((await countUsage(adminDb, 'locate', 3_600_000, userId)) >= SEARCHES_PER_HOUR) {
     return json({ error: 'Too many searches this hour. Try again later.' }, 429);
   }
-  const search = async (q: string) => {
-    const params = new URLSearchParams({ q, format: 'jsonv2', limit: '5', addressdetails: '0' });
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-      headers: { 'User-Agent': 'Tripbox/0.1 (+https://github.com/SiawMZ/tripbox)', 'Accept-Language': 'en' },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`nominatim ${res.status}`);
-    return (await res.json()) as { display_name: string; name?: string; lat: string; lon: string }[];
-  };
-  let found: Awaited<ReturnType<typeof search>> = [];
+  const near = trip.hotel_lat != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng! } : null;
+  let results: Suggestion[] = [];
   try {
-    // Near the trip's city first ("Hotel Jen" is in many cities); then anywhere.
-    found = await search(`${query}, ${trip.city}`);
-    if (!found.length) found = await search(query);
+    // "Hotel Jen" is in many cities: add the trip's city unless the traveller already typed it.
+    const input = query.toLowerCase().includes(trip.city.toLowerCase()) ? query : `${query} ${trip.city}`;
+    results = await suggest(input, googleKey, session, near);
   } catch (e) {
-    console.error('nominatim failed', e instanceof Error ? e.message : e);
+    console.error('autocomplete failed', e instanceof Error ? e.message : e);
   }
-  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: found.length ? 'ok' : 'failed' });
-  return json({
-    results: found.map((r) => ({
-      name: (r.name || r.display_name.split(',')[0]).slice(0, 120),
-      address: r.display_name.slice(0, 300),
-      lat: Number(r.lat),
-      lng: Number(r.lon),
-    })),
-  });
+  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: results.length ? 'ok' : 'failed', places_calls: 1 });
+  return json({ results });
+}
+
+async function setStart(
+  userDb: SupabaseClient,
+  adminDb: SupabaseClient,
+  userId: string,
+  body: { trip_id?: string; place_id?: string; name?: string; session?: string },
+) {
+  const tripId = String(body.trip_id ?? '');
+  const placeId = String(body.place_id ?? '').slice(0, 300);
+  const name = String(body.name ?? '').trim().slice(0, 120);
+  if (!placeId || !name) return json({ error: 'Pick a place.' }, 400);
+  const trip = await memberTrip(userDb, tripId);
+  if (!trip) return json({ error: 'trip not found' }, 404);
+  const at = await placeLocation(placeId, googleKey, sessionToken(body.session));
+  await logUsage(adminDb, { user_id: userId, trip_id: tripId, kind: 'locate', outcome: at ? 'ok' : 'failed', places_calls: 1 });
+  if (!at) return json({ error: 'Could not find that place on the map. Try another result.' }, 404);
+  const hotel = { hotel_name: name, hotel_lat: at.lat, hotel_lng: at.lng, hotel_place_id: placeId, hotel_coords_fetched_at: new Date().toISOString() };
+  const { error } = await adminDb.from('trips').update(hotel).eq('id', tripId);
+  if (error) throw error;
+  return json({ hotel });
+}
+
+/** Refreshes a Google start point's coordinates before Google's 30-day limit (they're cleared after 30 days). */
+async function refreshStart(adminDb: SupabaseClient, trip: MemberTrip, usage: Usage) {
+  if (!trip.hotel_place_id) return;
+  const fetched = trip.hotel_coords_fetched_at ? Date.parse(trip.hotel_coords_fetched_at) : 0;
+  if (trip.hotel_lat != null && fetched > Date.now() - COORDS_DAYS * 864e5) return;
+  const at = await placeLocation(trip.hotel_place_id, googleKey).catch(() => null);
+  usage.places_calls++;
+  if (at) {
+    await adminDb
+      .from('trips')
+      .update({ hotel_lat: at.lat, hotel_lng: at.lng, hotel_coords_fetched_at: new Date().toISOString() })
+      .eq('id', trip.id);
+  }
+}
+
+/** Google's session tokens are UUIDs made by the app; anything else is dropped (the calls are then billed singly). */
+function sessionToken(v: unknown) {
+  const t = String(v ?? '');
+  return /^[0-9a-f-]{36}$/i.test(t) ? t : undefined;
 }
 
 // ---------- helpers ----------
 
 class UserError extends Error {}
 
+type MemberTrip = {
+  id: string;
+  city: string;
+  hotel_name: string | null;
+  hotel_lat: number | null;
+  hotel_lng: number | null;
+  hotel_place_id: string | null;
+  hotel_coords_fetched_at: string | null;
+};
+
 async function memberTrip(userDb: SupabaseClient, tripId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(tripId)) return null;
-  const { data } = await userDb.from('trips').select('id, city, hotel_name, hotel_lat, hotel_lng').eq('id', tripId).maybeSingle();
-  return data as { id: string; city: string; hotel_name: string | null; hotel_lat: number | null; hotel_lng: number | null } | null;
+  const { data } = await userDb
+    .from('trips')
+    .select('id, city, hotel_name, hotel_lat, hotel_lng, hotel_place_id, hotel_coords_fetched_at')
+    .eq('id', tripId)
+    .maybeSingle();
+  return data as MemberTrip | null;
 }
 
 async function countUsage(adminDb: SupabaseClient, kind: string, ms: number, userId?: string, sumGoogle = false) {

@@ -1,7 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { locateTrip } from './importer';
+import { cityCentre } from './geocode';
 import { supabase } from './supabase';
 import type { NewTrip, Place, PlacePatch, Trip, TripLink, TripPatch } from './types';
 
@@ -120,11 +120,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
     const created = { ...(data as Trip), place_count: 0 };
     setTrips((prev) => sortTrips([...prev, created]));
-    // Start each day from the city centre until the traveller sets a hotel (needs Google, so the function does it).
-    void locateTrip(created.id)
-      .then(({ hotel }) =>
-        setTrips((prev) => prev.map((t) => (t.id === created.id ? { ...t, hotel_name: hotel.name, hotel_lat: hotel.lat, hotel_lng: hotel.lng } : t))),
-      )
+    // Start each day from the city centre until the traveller sets a hotel (OpenStreetMap, searched from this device).
+    void cityCentre(created.city)
+      .then(async (centre) => {
+        if (!centre) return;
+        const patch = { hotel_name: `${created.city} city centre (set your hotel)`.slice(0, 120), hotel_lat: centre.lat, hotel_lng: centre.lng };
+        const { error } = await supabase.from('trips').update(patch).eq('id', created.id);
+        if (!error) setTrips((prev) => prev.map((t) => (t.id === created.id ? { ...t, ...patch } : t)));
+      })
       .catch(() => {});
     return created;
   }, []);

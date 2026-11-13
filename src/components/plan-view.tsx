@@ -24,6 +24,7 @@ type Drag = { key: string; over: number | null; rects: Rect[] };
  */
 export function PlanView({
   trip,
+  start,
   shown,
   sources,
   busy,
@@ -35,6 +36,8 @@ export function PlanView({
   focus,
 }: {
   trip: Trip;
+  /** Where days start: the hotel, or the middle of the places until one is set. */
+  start: { name: string; lat: number; lng: number } | null;
   shown: ShownPlan;
   sources: Record<string, PlaceSource>;
   busy: boolean;
@@ -48,8 +51,8 @@ export function PlanView({
   const sections = useRef(new Map<number, ViewRef>());
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  const hotel = trip.hotel_lat != null && trip.hotel_lng != null ? { lat: trip.hotel_lat, lng: trip.hotel_lng } : null;
-  const hotelName = trip.hotel_name ?? trip.city;
+  const hotel = start;
+  const hotelName = start?.name ?? trip.city;
 
   const setDragBoth = (d: Drag | null) => {
     dragRef.current = d;

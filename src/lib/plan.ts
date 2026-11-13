@@ -43,12 +43,24 @@ function toPlanPlace(p: Place): PlanPlace | null {
   };
 }
 
+/** Where days start: the trip's hotel, or the middle of its places until one is set. */
+export function startPoint(trip: Trip, places: Place[]) {
+  if (trip.hotel_lat != null && trip.hotel_lng != null) return { name: trip.hotel_name ?? trip.city, lat: trip.hotel_lat, lng: trip.hotel_lng };
+  const located = places.filter((p) => !p.removed && p.lat != null && p.lng != null);
+  if (!located.length) return null;
+  return {
+    name: 'the middle of your places (set your hotel in Trip)',
+    lat: located.reduce((s, p) => s + p.lat!, 0) / located.length,
+    lng: located.reduce((s, p) => s + p.lng!, 0) / located.length,
+  };
+}
+
 export function tripInput(trip: Trip, places: Place[]): TripInput {
   const active = places.filter((p) => !p.removed);
   return {
     startDate: trip.start_date,
     days: trip.days,
-    hotel: { name: trip.hotel_name ?? trip.city, lat: trip.hotel_lat ?? 0, lng: trip.hotel_lng ?? 0 },
+    hotel: startPoint(trip, places) ?? { name: trip.city, lat: 0, lng: 0 },
     dayStart: hhmm(trip.day_start) ?? '09:00',
     dayEnd: hhmm(trip.day_end) ?? '22:00',
     maxMealsPerDay: trip.max_meals,

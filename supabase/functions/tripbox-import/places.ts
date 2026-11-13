@@ -5,6 +5,9 @@
 //   basics       Place Details Essentials         address, coordinates, photo list (US$5 / 1,000)
 //   hours        Place Details Enterprise         opening hours (US$20 / 1,000)
 //   photoUri     Place Photo                      one image (US$7 / 1,000)
+//   suggest      Autocomplete (New)               start point search; with a session token that ends in
+//                                                 placeLocation, Google bills the session as that one call
+//   placeLocation Place Details Essentials        coordinates only
 // Prices and free monthly allowances: https://developers.google.com/maps/billing-and-pricing/pricing
 
 export type OpeningPeriod = {
@@ -78,4 +81,43 @@ export async function photoUri(photoName: string, apiKey: string, width = 240): 
 /** The place on Google Maps, built from its ID (never a URL from a page or the AI). */
 export function mapsUrl(placeId: string) {
   return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`;
+}
+
+/** A start point suggestion, shown to the traveller and never stored. */
+export type Suggestion = { place_id: string; main: string; secondary: string };
+
+/** Autocomplete (New) suggestions for a hotel or address, biased to 50 km around `near` when given. */
+export async function suggest(
+  input: string,
+  apiKey: string,
+  sessionToken?: string,
+  near?: { lat: number; lng: number } | null,
+): Promise<Suggestion[]> {
+  const data = await google(`${BASE}/places:autocomplete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey },
+    body: JSON.stringify({
+      input,
+      sessionToken,
+      ...(near ? { locationBias: { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: 50000 } } } : {}),
+    }),
+  });
+  type Prediction = { placeId: string; text?: { text: string }; structuredFormat?: { mainText?: { text: string }; secondaryText?: { text: string } } };
+  return ((data.suggestions ?? []) as { placePrediction?: Prediction }[])
+    .flatMap((x) => (x.placePrediction ? [x.placePrediction] : []))
+    .slice(0, 5)
+    .map((p) => ({
+      place_id: p.placeId,
+      main: (p.structuredFormat?.mainText?.text ?? p.text?.text ?? '').slice(0, 200),
+      secondary: (p.structuredFormat?.secondaryText?.text ?? '').slice(0, 300),
+    }));
+}
+
+/** Coordinates only (Place Details Essentials), ending the autocomplete session when one is given. */
+export async function placeLocation(placeId: string, apiKey: string, sessionToken?: string): Promise<{ lat: number; lng: number } | null> {
+  const q = sessionToken ? `?sessionToken=${encodeURIComponent(sessionToken)}` : '';
+  const p = await google(`${BASE}/places/${encodeURIComponent(placeId)}${q}`, {
+    headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'location' },
+  });
+  return p?.location ? { lat: p.location.latitude, lng: p.location.longitude } : null;
 }

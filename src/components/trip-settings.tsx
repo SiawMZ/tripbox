@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button, Chip, Field, T } from '@/components/ui';
-import { findStart, type StartResult } from '@/lib/importer';
+import { newSearchSession, searchStart, setStart, type StartSuggestion } from '@/lib/importer';
 import { useStore } from '@/lib/store';
 import { space, useColors } from '@/lib/theme';
 import type { TravelMode, Trip } from '@/lib/types';
@@ -92,13 +92,18 @@ export function PlanSettings({ trip }: { trip: Trip }) {
   );
 }
 
-/** Where each day starts and ends: search a hotel or address (OpenStreetMap). */
+/**
+ * Where each day starts and ends: search a hotel or address (Google suggestions, shown but never stored), then pick
+ * one. The label saved is what the traveller typed; the position is kept the way Google allows (refreshed, 30 days).
+ */
 export function StartPoint({ trip }: { trip: Trip }) {
   const c = useColors();
-  const { updateTrip } = useStore();
+  const { refresh } = useStore();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<StartResult[] | null>(null);
+  const [session, setSession] = useState(newSearchSession);
+  const [results, setResults] = useState<StartSuggestion[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function search() {
@@ -106,7 +111,7 @@ export function StartPoint({ trip }: { trip: Trip }) {
     setBusy(true);
     setError(null);
     try {
-      setResults(await findStart(trip.id, query.trim()));
+      setResults(await searchStart(trip.id, query.trim(), session));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Search failed.');
     } finally {
@@ -114,22 +119,28 @@ export function StartPoint({ trip }: { trip: Trip }) {
     }
   }
 
-  async function pick(r: StartResult) {
+  async function pick(r: StartSuggestion) {
     setError(null);
+    setPicking(r.place_id);
     try {
-      await updateTrip(trip.id, { hotel_name: r.name, hotel_lat: r.lat, hotel_lng: r.lng });
+      // Keep what the traveller typed when it names the place well; else Google's short name for it, as a label.
+      const typed = query.trim();
+      await setStart(trip.id, r.place_id, typed.length >= 4 ? typed : r.main, session);
+      await refresh();
       setResults(null);
       setQuery('');
+      setSession(newSearchSession()); // the pick ends this search session
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save.');
+    } finally {
+      setPicking(null);
     }
   }
 
   return (
     <View style={{ gap: space.md }}>
       <T>
-        <T variant="bodyStrong">{trip.hotel_name ?? 'Not set'}</T>
-        {trip.hotel_lat != null ? <T tone="muted">{`  ${trip.hotel_lat.toFixed(4)}, ${trip.hotel_lng?.toFixed(4)}`}</T> : null}
+        <T variant="bodyStrong">{trip.hotel_name ?? 'Not set yet: days start from the middle of your places'}</T>
       </T>
       <View style={styles.search}>
         <View style={{ flex: 1 }}>
@@ -137,18 +148,25 @@ export function StartPoint({ trip }: { trip: Trip }) {
         </View>
         <Button label="Search" variant="secondary" loading={busy} onPress={search} />
       </View>
-      {results?.length === 0 ? <T tone="muted">Nothing found. Try the hotel’s name with its street.</T> : null}
-      {results?.map((r, i) => (
-        <Pressable key={i} onPress={() => void pick(r)} accessibilityRole="button" style={[styles.result, { borderColor: c.border }]}>
-          <T variant="bodyStrong">{r.name}</T>
-          <T variant="small" tone="muted" numberOfLines={2}>
-            {r.address}
-          </T>
+      {results?.length === 0 ? <T tone="muted">Nothing found. Try the hotel’s name, or its street.</T> : null}
+      {results?.map((r) => (
+        <Pressable
+          key={r.place_id}
+          onPress={() => void pick(r)}
+          disabled={!!picking}
+          accessibilityRole="button"
+          style={[styles.result, { borderColor: picking === r.place_id ? c.line : c.border }]}>
+          <T variant="bodyStrong">{picking === r.place_id ? `${r.main} …` : r.main}</T>
+          {r.secondary ? (
+            <T variant="small" tone="muted" numberOfLines={2}>
+              {r.secondary}
+            </T>
+          ) : null}
         </Pressable>
       ))}
       {results?.length ? (
         <T variant="small" tone="muted">
-          Addresses: © OpenStreetMap contributors
+          Search results: Google Maps
         </T>
       ) : null}
       {error ? <T tone="danger">{error}</T> : null}

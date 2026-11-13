@@ -6,7 +6,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(72);
+select plan(77);
 
 -- ---------- fixtures (as postgres) ----------
 insert into auth.users (id, aud, role, email, instance_id) values
@@ -284,6 +284,27 @@ select results_eq(
   array[1], 'B can delete their trip''s covers (before deleting the trip)'
 );
 reset role;
+
+-- ---------- Google start point (hotel) on trip_b, owned by B ----------
+reset role;
+update trips set hotel_name = 'Hotel X', hotel_lat = 5.4, hotel_lng = 100.3, hotel_place_id = 'g-hotel',
+  hotel_coords_fetched_at = now() - interval '31 days' where id = (select id from ids where name = 'trip_b');
+select pg_temp.as_user('bbbbbbbb-0000-4000-8000-000000000002');
+select throws_ok($$ update trips set hotel_place_id = 'other' where id = (select id from ids where name = 'trip_b') $$,
+  '42501', null, 'members cannot set the Google start point id (only the function)');
+reset role;
+select public.trip_expire_google_coords();
+select is((select hotel_lat from trips where id = (select id from ids where name = 'trip_b')), null,
+  'a Google start point''s coordinates are deleted after 30 days');
+select is((select hotel_place_id from trips where id = (select id from ids where name = 'trip_b')), 'g-hotel',
+  'its place id stays, so it can be fetched again');
+select pg_temp.as_user('bbbbbbbb-0000-4000-8000-000000000002');
+update trips set hotel_name = 'City centre', hotel_lat = 5.41, hotel_lng = 100.33 where id = (select id from ids where name = 'trip_b');
+reset role;
+select is((select hotel_place_id from trips where id = (select id from ids where name = 'trip_b')), null,
+  'a start point set by a member is no longer tied to Google');
+select is((select hotel_lat from trips where id = (select id from ids where name = 'trip_b')), 5.41::float8,
+  'and its coordinates are kept');
 
 select * from finish();
 rollback;

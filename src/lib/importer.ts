@@ -109,10 +109,6 @@ export async function addPicked(linkId: string, picks: number[]) {
   return out.added;
 }
 
-/** Starts a new trip's days from its city centre until a hotel is set. */
-export async function locateTrip(tripId: string) {
-  return call<{ hotel: { name: string | null; lat: number | null; lng: number | null } }>({ action: 'locate', trip_id: tripId });
-}
 
 /**
  * Live Google details (address, photo, opening hours) for places of a trip. Each costs a Google call, so ask
@@ -129,10 +125,28 @@ export async function rateImport(linkId: string, rating: 'good' | 'bad') {
   if (error) throw error;
 }
 
-export type StartResult = { name: string; address: string; lat: number; lng: number };
 
-/** Searches a hotel or address (OpenStreetMap) to start each day from. */
-export async function findStart(tripId: string, query: string) {
-  const out = await call<{ results: StartResult[] }>({ action: 'find_start', trip_id: tripId, query });
+/** A start point suggestion from Google: shown in the search results, never stored. */
+export type StartSuggestion = { place_id: string; main: string; secondary: string };
+
+/**
+ * Google's autocomplete bills a search and the pick that follows as one session, linked by a token made here.
+ * A random v4 UUID (Math.random is enough for this: it only groups the calls).
+ */
+export function newSearchSession() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+/** Hotels and addresses matching `query`, near the trip's city. */
+export async function searchStart(tripId: string, query: string, session: string) {
+  const out = await call<{ results: StartSuggestion[] }>({ action: 'search_start', trip_id: tripId, query, session });
   return out.results;
+}
+
+/** Makes the picked suggestion the trip's start point; `name` is the label to show (what the traveller typed). */
+export async function setStart(tripId: string, placeId: string, name: string, session: string) {
+  await call({ action: 'set_start', trip_id: tripId, place_id: placeId, name, session });
 }

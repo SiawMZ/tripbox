@@ -45,5 +45,9 @@ coordinates); opening a trip = no Google call (an Essentials only when a place's
 visit (hours are kept in memory until the app restarts); dragging or adding a place to a day = no call. The trip map:
 free on Android; on the web 1 Dynamic Maps load each time a trip screen opens. Only each place's day and order are
 saved; times are worked out again when shown (from opening hours only if they're in memory), so nothing derived from
-Google's hours is stored. The free allowances are per billing account, i.e. shared by all Tripbox users. Each call is
+Google's hours is stored. The free allowances are per billing account, i.e. shared by all Tripbox users.
+Start point search: 1 Autocomplete request per search plus 1 Essentials call for the picked place, in one session
+(Google bills an autocomplete session that ends in Place Details by the Details call; check the price list). The
+picked place's ID is kept; its coordinates are dated, refreshed when planning and cleared after 30 days. The saved
+label is what the traveller typed, not Google's text. A new trip's city centre comes from OpenStreetMap. Each call is
 logged in `trip_usage` and limited per person per day (`TRIPBOX_DETAILS_PER_DAY`).

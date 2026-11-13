@@ -12,7 +12,7 @@ import { PlanSettings, StartPoint } from '@/components/trip-settings';
 import { Button, Check, Field, Rule, ScreenHeader, SectionLabel, Sheet, T } from '@/components/ui';
 import { confirm } from '@/lib/confirm';
 import { dateRange, isIsoDate } from '@/lib/dates';
-import { addToDay, moveToDay, optimize, removeFromPlan, shownPlan } from '@/lib/plan';
+import { addToDay, moveToDay, optimize, removeFromPlan, shownPlan, startPoint } from '@/lib/plan';
 import { useStore } from '@/lib/store';
 import { dayColor, space, type as typeScale, useColors, useIsWide } from '@/lib/theme';
 import type { Place, Trip } from '@/lib/types';
@@ -84,8 +84,7 @@ export default function TripScreen() {
     }
   }
 
-  const hotel =
-    trip.hotel_lat != null && trip.hotel_lng != null ? { name: trip.hotel_name ?? trip.city, lat: trip.hotel_lat, lng: trip.hotel_lng } : null;
+  const hotel = startPoint(trip, places ?? []);
   const activeCount = places?.filter((p) => !p.removed).length ?? trip.place_count ?? 0;
   const isOwner = trip.owner_id === session?.user.id;
 
@@ -124,6 +123,7 @@ export default function TripScreen() {
       ) : tab === 'plan' ? (
         <PlanView
           trip={trip}
+          start={hotel}
           shown={shown}
           sources={sources}
           busy={busy}
