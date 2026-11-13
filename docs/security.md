@@ -5,6 +5,12 @@ table starts with `trip`, every function with `tripbox-`, and nothing Tripbox ad
 tables (`links`, `folders`, `folder_members`, `profiles` except the user's own display name, `enrich_log`,
 storage `thumbnails`).
 
+One read-only exception (2026-11-13): "Import from a Linkbox folder" (`src/lib/linkbox.ts`) reads the signed-in
+person's own `folders` and `links` through Linkbox's row level security, and the shared folders they joined through
+Linkbox's `get_collab_folders()` / `get_joined_links()` (public fields only, no notes). It never writes to Linkbox's
+tables, and adds no policy or function to them. Each picked post then goes through `tripbox-import` like a pasted
+link (at most 20 per batch in the app; the function's own limits, 30 imports an hour and 150 a day, still apply).
+
 Run the database checks with `npx supabase db reset` then `npx supabase test db`
 (`supabase/tests/database/trips_rls.test.sql`: two users, a signed-out visitor and the service role; 65 checks).
 Add a check there with every new table, policy or RPC.

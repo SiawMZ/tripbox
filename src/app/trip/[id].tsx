@@ -158,6 +158,7 @@ export default function TripScreen() {
       <ImportSheet
         tripId={trip.id}
         visible={importing}
+        importedUrls={(links[trip.id] ?? []).flatMap((l) => (l.url ? [l.url] : []))}
         onClose={() => setImporting(false)}
         onAdded={(n) => {
           setImporting(false);
