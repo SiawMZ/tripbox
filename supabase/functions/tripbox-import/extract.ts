@@ -5,7 +5,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@0.134';
 import { zodOutputFormat } from 'npm:@anthropic-ai/sdk@0.134/helpers/zod';
 import { z } from 'npm:zod@4';
 
-import { downloadImage, type Post } from './post.ts';
+import { postImage, type Post } from './post.ts';
 
 const MODEL = Deno.env.get('EXTRACT_MODEL') ?? 'claude-haiku-5-5';
 // Claude Haiku 5.5, US$ per million tokens (prompts under 100K), checked 2026-11-11.
@@ -77,7 +77,7 @@ export async function extractPlaces(
 
   const blocks: Anthropic.ContentBlockParam[] = [];
   for (const url of post.images.slice(0, MAX_IMAGES)) {
-    const img = await downloadImage(url);
+    const img = await postImage(post, url);
     if (img) blocks.push({ type: 'image', source: { type: 'base64', media_type: img.type, data: img.base64 } });
   }
   usage.images = blocks.length;

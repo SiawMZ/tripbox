@@ -27,7 +27,75 @@ export type Post = {
   text?: string;
   author?: string;
   images: string[];
+  /** Pictures the phone already downloaded (Xiaohongshu ignores Supabase's servers), by their address. */
+  supplied?: Map<string, { type: ImageType; bytes: Uint8Array }>;
 };
+
+/** A post page and pictures read on the traveller's phone, sent with the import. Untrusted: checked below. */
+export type DevicePage = { url: string; html: string; images?: { url: string; type: string; base64: string }[] };
+
+const MAX_DEVICE_IMAGES = 4;
+
+/** True when the bytes really are the image type they claim (they become a stored cover). */
+function looksLike(type: ImageType, b: Uint8Array) {
+  if (type === 'image/jpeg') return b[0] === 0xff && b[1] === 0xd8;
+  if (type === 'image/png') return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  if (type === 'image/gif') return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46;
+  return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45; // RIFF....WE(BP)
+}
+
+/**
+ * A Xiaohongshu post read on the phone. Since 2026-11 Xiaohongshu drops requests from Supabase's servers (they
+ * time out), so the app fetches the page and its first pictures itself. Everything here is checked as if it came
+ * from the web: the address must be Xiaohongshu's, the page is capped, pictures must be real images of at most 5 MB.
+ * Returns null when the page isn't usable (the function then tries to fetch the post itself).
+ */
+export function postFromDevice(link: string, page: DevicePage): Post | null {
+  if (typeof page?.html !== 'string' || typeof page.url !== 'string') return null;
+  if (detectPlatform(link) !== 'xiaohongshu' || detectPlatform(page.url) !== 'xiaohongshu' || isLoginPage(page.url)) return null;
+  if (!/^https:\/\//i.test(page.url) || page.url.length > 2000) return null;
+  const html = page.html.slice(0, MAX_HTML_BYTES);
+  const post: Post = { url: link, resolvedUrl: page.url, platform: 'xiaohongshu', blocked: false, images: [] };
+  parsePage(post, html, page.url);
+  if (!post.text && !post.title) return null;
+  const supplied = new Map<string, { type: ImageType; bytes: Uint8Array }>();
+  for (const img of (Array.isArray(page.images) ? page.images : []).slice(0, MAX_DEVICE_IMAGES)) {
+    if (typeof img?.url !== 'string' || typeof img.base64 !== 'string' || img.base64.length > (MAX_IMAGE_BYTES * 4) / 3 + 4) continue;
+    if (!(IMAGE_TYPES as readonly string[]).includes(img.type)) continue;
+    let bytes: Uint8Array;
+    try {
+      bytes = Uint8Array.from(atob(img.base64), (ch) => ch.charCodeAt(0));
+    } catch {
+      continue;
+    }
+    if (bytes.length > MAX_IMAGE_BYTES || !looksLike(img.type as ImageType, bytes)) continue;
+    supplied.set(img.url, { type: img.type as ImageType, bytes });
+  }
+  // The phone's pictures first (they can be read), then the rest of the page's.
+  post.images = [...new Set([...supplied.keys(), ...post.images])];
+  post.supplied = supplied;
+  return post;
+}
+
+/** A picture of the post: the phone's copy when it sent one, else downloaded here. */
+export async function postImageBytes(post: Post, url: string) {
+  return post.supplied?.get(url) ?? (await downloadImageBytes(url));
+}
+
+/** The same, as base64 for the AI. */
+export async function postImage(post: Post, url: string): Promise<{ type: ImageType; base64: string } | null> {
+  const got = await postImageBytes(post, url);
+  return got ? { type: got.type, base64: toBase64(got.bytes) } : null;
+}
+
+function hostAndPath(url: string) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.slice(0, 120);
+  } catch {
+    return '';
+  }
+}
 
 export async function readPost(url: string): Promise<Post> {
   const platform = detectPlatform(url);
@@ -43,20 +111,16 @@ export async function readPost(url: string): Promise<Post> {
     post.blocked =
       (platform !== 'web' && detectPlatform(finalUrl) !== platform) || isLoginPage(finalUrl);
     post.resolvedUrl = finalUrl;
+    // What the site answered (status, where it ended up; no query string): shows in the logs when a platform
+    // starts refusing the function's requests.
+    console.log('post fetch', res.status, hostAndPath(finalUrl), res.headers.get('content-type') ?? '', post.blocked ? 'off-platform/login' : '');
     if (post.blocked || !res.ok || !(res.headers.get('content-type') ?? '').includes('html')) {
       res.body?.cancel().catch(() => {});
       if (!res.ok) post.blocked = true;
       return post;
     }
     const html = await readLimited(res, MAX_HTML_BYTES);
-    const meta = parseMeta(html, finalUrl);
-    const xhs = realPlatform === 'xiaohongshu' ? parseXiaohongshuState(html) : {};
-    post.title = xhs.title ?? meta.title;
-    post.text = xhs.text ?? meta.description;
-    post.author = xhs.author ?? meta.author;
-    post.images = [...new Set([...(xhs.images ?? []), ...(meta.images ?? [])])];
-    // Web articles: the body text often names the places that og:description leaves out.
-    if (realPlatform === 'web') post.text = [post.text, pageText(html)].filter(Boolean).join('\n\n');
+    parsePage(post, html, finalUrl);
   } catch (e) {
     post.blocked = true;
     console.warn('  page fetch failed:', e instanceof Error ? e.message : e);
@@ -71,6 +135,19 @@ export async function readPost(url: string): Promise<Post> {
     post.blocked = false;
   }
   return post;
+}
+
+/** Title, text, author and pictures from a post page (fetched here, or on the phone). */
+function parsePage(post: Post, html: string, finalUrl: string) {
+  const meta = parseMeta(html, finalUrl);
+  const xhs = post.platform === 'xiaohongshu' ? parseXiaohongshuState(html) : {};
+  if (post.platform === 'xiaohongshu' && !xhs.text) console.log('post fetch: no Xiaohongshu post data in the page', html.length, 'bytes');
+  post.title = xhs.title ?? meta.title;
+  post.text = xhs.text ?? meta.description;
+  post.author = xhs.author ?? meta.author;
+  post.images = [...new Set([...(xhs.images ?? []), ...(meta.images ?? [])])];
+  // Web articles: the body text often names the places that og:description leaves out.
+  if (post.platform === 'web') post.text = [post.text, pageText(html)].filter(Boolean).join('\n\n');
 }
 
 async function fetchOEmbed(platform: Platform, url: string) {

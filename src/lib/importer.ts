@@ -1,5 +1,8 @@
 import { fetch as streamingFetch } from 'expo/fetch';
+import { Platform } from 'react-native';
 
+import { detectPlatform } from '../../supabase/functions/_shared/url';
+import { readPostOnDevice, readsOnDevice, type DevicePage } from './device-post';
 import { supabase } from './supabase';
 
 /**
@@ -77,11 +80,30 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
  * Uses expo/fetch, whose response body can be read as a stream on phones too.
  */
 export async function runImport(tripId: string, url: string, text: string, onEvent: (e: ImportEvent) => void) {
+  // Xiaohongshu ignores Supabase's servers, so the phone app reads those posts itself (see device-post.ts).
+  let page: DevicePage | null = null;
+  if (url && readsOnDevice(url)) {
+    onEvent({ step: 'open' });
+    page = await readPostOnDevice(url);
+  }
   const res = await streamingFetch(FUNCTION_URL, {
     method: 'POST',
     headers: await headers(),
-    body: JSON.stringify({ action: 'import', trip_id: tripId, url, text }),
+    body: JSON.stringify({ action: 'import', trip_id: tripId, url, text, ...(page ? { page } : {}) }),
   });
+  // On the website a blocked Xiaohongshu post can't be read on the device: say what works instead.
+  const xhsOnWeb = !!url && Platform.OS === 'web' && detectPlatform(url) === 'xiaohongshu';
+  const relay = onEvent;
+  onEvent = (e) =>
+    relay(
+      e.step === 'error' && xhsOnWeb && /blocked/i.test(e.message)
+        ? {
+            step: 'error',
+            message:
+              'Xiaohongshu doesn’t let Tripbox’s server open posts at the moment. Import it from the Tripbox phone app, or paste the post’s text (or the shop names) below.',
+          }
+        : e,
+    );
   if (!res.ok || !res.body) {
     const out = await res.json().catch(() => ({}));
     onEvent({ step: 'error', message: out.error ?? `Import failed (${res.status})` });

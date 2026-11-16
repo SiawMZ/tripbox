@@ -93,6 +93,12 @@ How `supabase/functions/tripbox-import` meets the requirements below:
   names); only the service role uploads. The app deletes a trip's covers before deleting the trip ("Delete trip" and
   "Delete my trips"). Not covered yet: deleting the account in Linkbox cascades the trips but leaves their covers;
   Linkbox's `delete-account` function should also empty the person's `trip-covers` folders (or a clean-up job).
+- Xiaohongshu posts read on the phone (2026-11-16): Xiaohongshu doesn't answer Supabase's servers (time-outs), so the
+  Android app fetches the post page and up to 4 pictures itself (`src/lib/device-post.ts`) and sends them with the
+  import as `page`. The function treats them as untrusted web content (`postFromDevice` in `post.ts`): the link and
+  the page address must both be Xiaohongshu's (not a login page), https, the page is capped at 1.5 MB, pictures must
+  be jpeg/png/webp/gif of at most 5 MB whose first bytes match that type (a picture becomes the stored cover), and
+  the text still goes to the AI as data inside <post>. A page that isn't usable falls back to the function's own fetch.
 - The web map builds its popups as HTML from place names (which come from posts): names are escaped (`esc` in
   `trip-map.web.tsx`).
 

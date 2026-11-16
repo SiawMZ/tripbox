@@ -14,7 +14,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@0.134';
 
 import { extractPlaces, usageCost } from './extract.ts';
 import { basics, findPlaceId, hours, mapsUrl, photoUri, placeLocation, suggest, type Basics, type OpeningPeriod, type Suggestion } from './places.ts';
-import { downloadImageBytes, readPost, type Post } from './post.ts';
+import { postFromDevice, postImageBytes, readPost, type DevicePage, type Post } from './post.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -100,7 +100,7 @@ async function importLink(
   userDb: SupabaseClient,
   adminDb: SupabaseClient,
   userId: string,
-  body: { trip_id?: string; url?: string; text?: string },
+  body: { trip_id?: string; url?: string; text?: string; page?: DevicePage },
 ) {
   const tripId = String(body.trip_id ?? '');
   const link = String(body.url ?? '').trim();
@@ -137,7 +137,10 @@ async function importLink(
         linkId = row.id as string;
 
         send({ step: 'open' });
-        const post: Post = link ? await readPost(link) : { url: '', resolvedUrl: '', platform: 'web', blocked: false, images: [] };
+        // A Xiaohongshu page read on the phone is used when it's usable; else the function fetches the post.
+        const fromDevice = link && body.page ? postFromDevice(link, body.page) : null;
+        if (body.page) console.log('post from device', fromDevice ? `ok, ${fromDevice.supplied?.size ?? 0} pictures` : 'not usable');
+        const post: Post = fromDevice ?? (link ? await readPost(link) : { url: '', resolvedUrl: '', platform: 'web', blocked: false, images: [] });
         if (post.blocked && !text) {
           throw new UserError('This post couldn’t be opened (the site blocked it). Paste its text or the place names and try again.');
         }
@@ -183,7 +186,7 @@ async function importLink(
             platform: post.platform.slice(0, 20),
             title: post.title?.slice(0, 500) ?? null,
             author: post.author?.slice(0, 200) ?? null,
-            cover_path: post.images[0] ? await saveCover(adminDb, tripId, linkId, post.images[0]) : null,
+            cover_path: post.images[0] ? await saveCover(adminDb, tripId, linkId, post, post.images[0]) : null,
             candidates,
           })
           .eq('id', linkId);
@@ -212,8 +215,8 @@ async function importLink(
  * Copies the post's first picture into the private trip-covers bucket (post image links expire and refuse other
  * sites). Each place from the post shows it, with a link back to the post. Null if it can't be fetched.
  */
-async function saveCover(adminDb: SupabaseClient, tripId: string, linkId: string, imageUrl: string) {
-  const img = await downloadImageBytes(imageUrl);
+async function saveCover(adminDb: SupabaseClient, tripId: string, linkId: string, post: Post, imageUrl: string) {
+  const img = await postImageBytes(post, imageUrl);
   if (!img) return null;
   const ext = img.type.split('/')[1].replace('jpeg', 'jpg');
   const path = `${tripId}/${linkId}.${ext}`;
