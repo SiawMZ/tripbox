@@ -24,25 +24,32 @@ export function readsOnDevice(url: string) {
   return Platform.OS !== 'web' && detectPlatform(url) === 'xiaohongshu';
 }
 
-/** Null when the post can't be read here (the function then tries itself). Never throws. */
-export async function readPostOnDevice(url: string): Promise<DevicePage | null> {
-  if (!readsOnDevice(url)) return null;
+/**
+ * The page, or why it couldn't be read here (sent to the function, which logs it and then tries itself).
+ * Never throws.
+ */
+export async function readPostOnDevice(url: string): Promise<{ page: DevicePage } | { error: string }> {
+  if (!readsOnDevice(url)) return { error: 'not read on this device' };
+  // Shared links are http://xhslink.com/…, and Android release builds refuse plain http (no cleartext traffic).
+  // xhslink.com answers https the same way (a redirect to the post).
+  const address = url.replace(/^http:\/\//i, 'https://');
   try {
-    // xhslink.com (the short links shared from the app) is sometimes slow from outside China: try twice.
-    const open = () => withTimeout(expoFetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en,zh;q=0.8' } }), 12_000);
+    // xhslink.com is sometimes slow from outside China: try twice.
+    const open = () => withTimeout(expoFetch(address, { headers: { 'User-Agent': UA, 'Accept-Language': 'en,zh;q=0.8' } }), 12_000);
     const res = await open().catch(() => open());
-    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return null;
+    const type = res.headers.get('content-type') ?? '';
+    if (!res.ok || !type.includes('html')) return { error: `status ${res.status} ${type.slice(0, 40)}` };
     const html = (await res.text()).slice(0, MAX_HTML);
-    const finalUrl = res.url || url;
-    if (detectPlatform(finalUrl) !== 'xiaohongshu') return null; // a login or bot-check page elsewhere
+    const finalUrl = res.url || address;
+    if (detectPlatform(finalUrl) !== 'xiaohongshu') return { error: 'redirected off Xiaohongshu' }; // login or bot check
     const images: DevicePage['images'] = [];
     for (const src of pictureAddresses(html).slice(0, MAX_IMAGES)) {
       const img = await download(src);
       if (img) images.push(img);
     }
-    return { url: finalUrl, html, images };
-  } catch {
-    return null;
+    return { page: { url: finalUrl, html, images } };
+  } catch (e) {
+    return { error: (e instanceof Error ? e.message : String(e)).slice(0, 160) };
   }
 }
 

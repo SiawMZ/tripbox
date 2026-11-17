@@ -82,14 +82,17 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
 export async function runImport(tripId: string, url: string, text: string, onEvent: (e: ImportEvent) => void) {
   // Xiaohongshu ignores Supabase's servers, so the phone app reads those posts itself (see device-post.ts).
   let page: DevicePage | null = null;
+  let deviceError: string | null = null;
   if (url && readsOnDevice(url)) {
     onEvent({ step: 'open' });
-    page = await readPostOnDevice(url);
+    const read = await readPostOnDevice(url);
+    if ('page' in read) page = read.page;
+    else deviceError = read.error;
   }
   const res = await streamingFetch(FUNCTION_URL, {
     method: 'POST',
     headers: await headers(),
-    body: JSON.stringify({ action: 'import', trip_id: tripId, url, text, ...(page ? { page } : {}) }),
+    body: JSON.stringify({ action: 'import', trip_id: tripId, url, text, ...(page ? { page } : {}), ...(deviceError ? { device_error: deviceError } : {}) }),
   });
   // On the website a blocked Xiaohongshu post can't be read on the device: say what works instead.
   const xhsOnWeb = !!url && Platform.OS === 'web' && detectPlatform(url) === 'xiaohongshu';

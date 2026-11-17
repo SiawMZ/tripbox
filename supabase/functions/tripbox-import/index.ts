@@ -100,7 +100,7 @@ async function importLink(
   userDb: SupabaseClient,
   adminDb: SupabaseClient,
   userId: string,
-  body: { trip_id?: string; url?: string; text?: string; page?: DevicePage },
+  body: { trip_id?: string; url?: string; text?: string; page?: DevicePage; device_error?: unknown },
 ) {
   const tripId = String(body.trip_id ?? '');
   const link = String(body.url ?? '').trim();
@@ -140,6 +140,8 @@ async function importLink(
         // A Xiaohongshu page read on the phone is used when it's usable; else the function fetches the post.
         const fromDevice = link && body.page ? postFromDevice(link, body.page) : null;
         if (body.page) console.log('post from device', fromDevice ? `ok, ${fromDevice.supplied?.size ?? 0} pictures` : 'not usable');
+        // Why the phone couldn't read the post (its own words, cut short), so a platform change shows in the logs.
+        if (body.device_error) console.log('post not read on device:', String(body.device_error).slice(0, 200));
         const post: Post = fromDevice ?? (link ? await readPost(link) : { url: '', resolvedUrl: '', platform: 'web', blocked: false, images: [] });
         if (post.blocked && !text) {
           throw new UserError('This post couldn’t be opened (the site blocked it). Paste its text or the place names and try again.');
